@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..security import require_api_key
-from ..skills import list_slugs, load_skill
+from ..skills import list_slugs, load_skill, skill_index
 
 router = APIRouter(
     prefix="/api/skill",
@@ -22,7 +22,14 @@ router = APIRouter(
 
 @router.get("", summary="List available skills")
 def index() -> dict:
-    return {"skills": list_slugs()}
+    return {
+        "skills": skill_index(),
+        "usage": (
+            "GET /api/skill/{slug} for a skill's full rules. Fetch the relevant "
+            "skill before performing it — e.g. notion-master for the Notion "
+            "safe-write rules before any /api/notion write."
+        ),
+    }
 
 
 @router.get(

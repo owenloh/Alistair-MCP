@@ -26,3 +26,22 @@ def load_skill(slug: str) -> dict | None:
     if slug not in set(list_slugs()):
         return None
     return json.loads((_DATA / f"{slug}.json").read_text(encoding="utf-8"))
+
+
+@lru_cache
+def skill_index() -> list[dict]:
+    """Lightweight catalogue of skills: slug, name, description, url.
+
+    Lets a caller discover what each skill is for (and how to fetch its rules)
+    without pulling every full instruction body.
+    """
+    out: list[dict] = []
+    for slug in list_slugs():
+        data = load_skill(slug) or {}
+        out.append({
+            "slug": slug,
+            "name": data.get("name", slug),
+            "description": data.get("description", ""),
+            "url": f"/api/skill/{slug}",
+        })
+    return out

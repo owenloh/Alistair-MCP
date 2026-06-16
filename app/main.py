@@ -19,6 +19,31 @@ from . import __version__
 from .config import get_settings
 from .routers import calendar, github, intray, notion, skill
 from .services import ServiceError
+from .skills import skill_index
+
+# Top intents mapped to call sequences, so a voice-mode Claude can self-bootstrap
+# from /api/manifest with the smallest possible always-on prompt.
+SHORTCUTS = [
+    {"intent": "daily brief / morning brief / what's on today",
+     "calls": ["POST /api/notion/query", "POST /api/calendar/today",
+               "POST /api/intray {\"action\":\"list\"}"],
+     "then": "deliver per GET /api/skill/daily-brief"},
+    {"intent": "add something to my in-tray",
+     "calls": ["POST /api/intray {\"action\":\"add\",\"title\":\"<text>\"}"]},
+    {"intent": "what's in my in-tray",
+     "calls": ["POST /api/intray {\"action\":\"list\"}"]},
+    {"intent": "complete / remove an in-tray item",
+     "calls": ["POST /api/intray {\"action\":\"done|delete\",\"task_id\":\"<id from list>\"}"]},
+    {"intent": "read Notion (find/open a page, query a database)",
+     "calls": ["POST /api/notion/search", "POST /api/notion/fetch",
+               "POST /api/notion/query-database"]},
+    {"intent": "write to Notion (incl. the references tray)",
+     "calls": ["GET /api/skill/notion-master  (safe-write rules first)",
+               "POST /api/notion/fetch", "POST /api/notion/update-page"]},
+    {"intent": "calendar",
+     "calls": ["POST /api/calendar/list-events", "POST /api/calendar/create-event",
+               "POST /api/calendar/suggest-time"]},
+]
 
 app = FastAPI(
     title="Alistair Skills API",
@@ -81,6 +106,10 @@ def root() -> dict:
         },
         "docs": "/docs",
         "manifest": "/api/manifest",
+        "how_to": (
+            "GET /api/manifest for every tool + intent shortcuts; GET /api/skill "
+            "for skill rules. Send X-API-Key on every /api/* call."
+        ),
     }
 
 
@@ -119,12 +148,24 @@ def manifest() -> dict:
             })
 
     function_apis = {k: groups[k] for k in ("notion", "calendar", "intray", "github")}
-    description_apis = {"skills": groups["skill"]}
-    counts = {k: len(v) for k, v in {**function_apis, **description_apis}.items()}
+    description_apis = {
+        "list_endpoint": "GET /api/skill",
+        "get_endpoint": "GET /api/skill/{slug}",
+        "skills": skill_index(),
+    }
+    counts = {k: len(v) for k, v in function_apis.items()}
+    counts["skills"] = len(description_apis["skills"])
     counts["total"] = sum(counts.values())
     return {
         "service": "Alistair Skills API",
         "version": __version__,
+        "how_to_use": (
+            "Function APIs do things; description APIs (skills) say what to do. "
+            "Send X-API-Key on every /api/* call. For common requests, follow "
+            "'shortcuts'; otherwise pick a tool by its description below and fetch "
+            "the relevant skill for its rules before acting."
+        ),
+        "shortcuts": SHORTCUTS,
         "function_apis": function_apis,
         "description_apis": description_apis,
         "counts": counts,

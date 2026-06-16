@@ -126,6 +126,26 @@ how to find the others"**, so the always-on prompt stays tiny. The inline
 shortcuts cover the highest-frequency intents with zero discovery round-trips
 (important for voice latency); everything else is one `GET /api/manifest` away.
 
+### Even smaller (self-bootstrapping) variant
+
+The API is self-describing, so you can drop the inline shortcuts entirely. The
+`GET /api/manifest` response carries `how_to_use` + a `shortcuts` block (intent →
+call sequence) and the skill catalogue, and `GET /api/skill` lists each skill
+with its description. That lets the always-on prompt shrink to:
+
+```
+In voice mode I have no connectors/skills. For anything about my Notion, Google
+Calendar, or Microsoft To Do in-tray, call my HTTP API instead of refusing:
+GET https://<your-app>.up.railway.app/api/manifest  (header X-API-Key: <key>)
+and follow its "shortcuts" and tool descriptions; fetch /api/skill/<slug> for a
+skill's rules before performing it.
+```
+
+Trade-off: this costs one `GET /api/manifest` round-trip on first use each
+session (slower first reply in voice). The longer prompt above avoids that for
+the common intents — pick based on whether you care more about prompt size or
+voice latency.
+
 ## Extending (future-proofing)
 
 - **More GitHub:** `app/services/github.py` (`GitHubClient`) already powers the
