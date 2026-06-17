@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,7 +34,11 @@ class Settings(BaseSettings):
     # ---- Google Calendar ----
     google_calendar_token: str | None = None
     google_calendar_id: str = "primary"
-    calendar_timezone: str = "Europe/London"
+    # Accept the bundle's TIMEZONE name (and CALENDAR_TIMEZONE as an alias).
+    calendar_timezone: str = Field(
+        default="Europe/London",
+        validation_alias=AliasChoices("TIMEZONE", "CALENDAR_TIMEZONE"),
+    )
     google_client_id: str | None = None
     google_client_secret: str | None = None
     google_refresh_token: str | None = None
