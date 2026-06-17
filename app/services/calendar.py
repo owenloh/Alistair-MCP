@@ -110,10 +110,17 @@ def _account_timezone(settings: Settings) -> str | None:
 
 
 def _resolve_tz(settings: Settings, requested: str | None) -> str:
-    """Timezone precedence: explicit request > live account tz > TIMEZONE default."""
-    if requested:
-        return requested
-    return _account_timezone(settings) or settings.calendar_timezone
+    """Timezone precedence: explicit request > live account tz > TIMEZONE default.
+
+    Blank/whitespace values are ignored so an empty TIMEZONE env var can't break
+    resolution; the final fallback is always a valid zone.
+    """
+    if requested and requested.strip():
+        return requested.strip()
+    auto = _account_timezone(settings)
+    if auto:
+        return auto
+    return settings.calendar_timezone.strip() or "Europe/London"
 
 
 def _tz(settings: Settings) -> ZoneInfo:
