@@ -13,6 +13,7 @@ synchronous httpx, and returns plain dicts. On any non-2xx upstream response a
 """
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import datetime, timedelta, time as dt_time
 from typing import Any, Iterable
@@ -65,14 +66,65 @@ def _access_token(settings: Settings) -> str:
     )
 
 
-def _tz(settings: Settings) -> ZoneInfo:
+def _zoneinfo(name: str) -> ZoneInfo:
     try:
-        return ZoneInfo(settings.calendar_timezone)
+        return ZoneInfo(name)
     except ZoneInfoNotFoundError:
         raise ServiceError(
-            f"Unknown timezone '{settings.calendar_timezone}'. Install tzdata or fix CALENDAR_TIMEZONE.",
-            status_code=500,
+            f"Unknown timezone '{name}'. Use a valid IANA name, e.g. America/New_York.",
+            status_code=400,
         )
+
+
+# Short-lived cache for the auto-detected account timezone so we don't add a
+# lookup (and token mint) to every calendar call. Refreshes within _TZ_TTL, so a
+# timezone change while travelling is picked up automatically within minutes.
+_TZ_CACHE: dict[str, Any] = {"value": None, "ts": 0.0}
+_TZ_TTL = 600.0
+
+
+def _account_timezone(settings: Settings) -> str | None:
+    """Best-effort current Google Calendar timezone (follows travel).
+
+    Reads the user's Calendar timezone *setting*; when you let Google update your
+    calendar's timezone on arrival in a new country, this tracks it. Returns None
+    (so callers fall back) if disabled or unavailable.
+    """
+    if not settings.timezone_auto:
+        return None
+    now = time.time()
+    if _TZ_CACHE["value"] and now - _TZ_CACHE["ts"] < _TZ_TTL:
+        return _TZ_CACHE["value"]
+    try:
+        resp = _request(
+            "GET", f"{_BASE}/users/me/settings/timezone",
+            settings=settings, op="resolve timezone",
+        )
+        value = resp.json().get("value")
+    except ServiceError:
+        return None
+    if value:
+        _TZ_CACHE["value"] = value
+        _TZ_CACHE["ts"] = now
+    return value
+
+
+def _resolve_tz(settings: Settings, requested: str | None) -> str:
+    """Timezone precedence: explicit request > live account tz > TIMEZONE default.
+
+    Blank/whitespace values are ignored so an empty TIMEZONE env var can't break
+    resolution; the final fallback is always a valid zone.
+    """
+    if requested and requested.strip():
+        return requested.strip()
+    auto = _account_timezone(settings)
+    if auto:
+        return auto
+    return settings.calendar_timezone.strip() or "Europe/London"
+
+
+def _tz(settings: Settings) -> ZoneInfo:
+    return _zoneinfo(_resolve_tz(settings, None))
 
 
 def _format_event(ev: dict, tz: ZoneInfo) -> dict:
@@ -103,8 +155,9 @@ def _format_event(ev: dict, tz: ZoneInfo) -> dict:
     return event
 
 
-def today_events(settings: Settings) -> dict:
-    tz = _tz(settings)
+def today_events(settings: Settings, *, time_zone: str | None = None) -> dict:
+    tz_name = _resolve_tz(settings, time_zone)
+    tz = _zoneinfo(tz_name)
     token = _access_token(settings)
 
     now = datetime.now(tz)
@@ -117,7 +170,7 @@ def today_events(settings: Settings) -> dict:
         "timeMax": end_of_day.isoformat(),
         "singleEvents": "true",
         "orderBy": "startTime",
-        "timeZone": settings.calendar_timezone,
+        "timeZone": tz_name,
         "maxResults": "100",
     }
     try:
@@ -142,7 +195,7 @@ def today_events(settings: Settings) -> dict:
     events = [_format_event(ev, tz) for ev in items if ev.get("status") != "cancelled"]
     return {
         "date": start_of_day.date().isoformat(),
-        "timezone": settings.calendar_timezone,
+        "timezone": tz_name,
         "count": len(events),
         "events": events,
     }
@@ -294,7 +347,7 @@ def list_events(
     sent to Google when ``singleEvents`` is true (a REST requirement).
     """
     url = _EVENTS_URL.format(cal=_cal(settings, calendar_id))
-    tz = time_zone or settings.calendar_timezone
+    tz = _resolve_tz(settings, time_zone)
 
     params: dict[str, Any] = {
         "singleEvents": "true" if single_events else "false",
@@ -413,7 +466,7 @@ def create_event(
 ) -> dict:
     """Create a calendar event and return a compact summary of the result."""
     url = _EVENTS_URL.format(cal=_cal(settings, calendar_id))
-    tz = time_zone or settings.calendar_timezone
+    tz = _resolve_tz(settings, time_zone)
 
     body: dict[str, Any] = {
         "summary": summary,
@@ -510,7 +563,7 @@ def update_event(
     cal = _cal(settings, calendar_id)
     eid = quote(event_id, safe="")
     url = f"{_BASE}/calendars/{cal}/events/{eid}"
-    tz = time_zone or settings.calendar_timezone
+    tz = _resolve_tz(settings, time_zone)
 
     body: dict[str, Any] = {}
     if summary is not None:
@@ -680,7 +733,7 @@ def suggest_time(
     [start_time, end_time] is then walked to find free gaps of at least
     ``duration_minutes``, honoring working-hour and weekend preferences.
     """
-    tz_name = time_zone or settings.calendar_timezone
+    tz_name = _resolve_tz(settings, time_zone)
     try:
         tz = ZoneInfo(tz_name)
     except ZoneInfoNotFoundError:

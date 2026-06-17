@@ -66,9 +66,9 @@ All secrets come from env vars only (see `.env.example`). Nothing is hardcoded.
 |-----|---------|-------|
 | `NOTION_TOKEN` | Notion | Internal integration secret (`ntn_…`). Share the Projects + Actions DBs with it. |
 | `PROJECTS_DB_ID`, `ACTIONS_DB_ID` | Notion | Default to the PARA DB ids; override if they change. |
-| `GOOGLE_CALENDAR_TOKEN` | Calendar | OAuth access token. |
-| `GOOGLE_CLIENT_ID/SECRET`, `GOOGLE_REFRESH_TOKEN` | Calendar | Optional: if all set, the service auto-refreshes (never goes stale). |
-| `GOOGLE_CALENDAR_ID`, `CALENDAR_TIMEZONE` | Calendar | Default `primary`, `Europe/London`. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` | Calendar | **Recommended durable path** — if all three are set, the service mints a fresh access token on every call (never goes stale). |
+| `GOOGLE_CALENDAR_TOKEN` | Calendar | Optional fallback Bearer token; **not needed** if the trio above is set. |
+| `GOOGLE_CALENDAR_ID`, `TIMEZONE`, `TIMEZONE_AUTO` | Calendar | `primary`; `TIMEZONE` is the home/fallback zone (`Europe/London`; `CALENDAR_TIMEZONE` alias). With `TIMEZONE_AUTO=true` (default) the service auto-detects your **current** Google Calendar timezone each call so it follows you when travelling; a per-call `timeZone` arg always overrides. |
 | `MS_CLIENT_ID`, `MS_TODO_LIST_ID`, `MS_TENANT` | In-tray | Azure public-client id; the in-tray list id; `consumers` for personal MS accounts. |
 | `GITHUB_TOKEN`, `GIST_ID`, `GIST_FILENAME` | In-tray + GitHub | Classic PAT (`gist` scope); private gist storing the MS refresh token. |
 | `SERVICE_API_KEY` | All `/api/*` | Optional. If set, every call must send `X-API-Key`. |
