@@ -39,6 +39,8 @@ class Settings(BaseSettings):
         default="Europe/London",
         validation_alias=AliasChoices("TIMEZONE", "CALENDAR_TIMEZONE"),
     )
+    # Auto-detect the current Google Calendar timezone per call (follows travel).
+    timezone_auto: bool = True
     google_client_id: str | None = None
     google_client_secret: str | None = None
     google_refresh_token: str | None = None

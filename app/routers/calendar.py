@@ -130,14 +130,22 @@ class SuggestTimeRequest(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+class TodayRequest(BaseModel):
+    timeZone: str | None = None
+
+
 @router.post(
     "/today",
     summary="Today's calendar events",
-    description="Returns today's events (time, title, notes) in the configured "
-    "timezone. No body required.",
+    description="Returns today's events (time, title, notes). Pass timeZone (IANA, "
+    "e.g. America/New_York) to use a specific zone; if omitted, the service "
+    "auto-detects your current Google Calendar timezone, falling back to the "
+    "configured default. No body required.",
 )
-def today() -> dict:
-    return calendar_service.today_events(get_settings())
+def today(body: TodayRequest | None = None) -> dict:
+    return calendar_service.today_events(
+        get_settings(), time_zone=body.timeZone if body else None
+    )
 
 
 @router.post(
