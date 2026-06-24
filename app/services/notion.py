@@ -254,9 +254,21 @@ _INLINE_RE = re.compile(
 )
 _MATH_RE = re.compile(r"\$`(?P<math>[^`]+?)`\$")
 _MENTION_RE = re.compile(
-    r'<mention-(?P<mkind>page|database|user)(?:\s+url="(?P<murl>[^"]*)")?>'
-    r'(?P<mlabel>.*?)</mention-(?P=mkind)>'
+    r'<mention-(?P<mkind>page|database|data-source|user|agent)'
+    r'(?:\s+url="(?P<murl>[^"]*)")?\s*'
+    r'(?:>(?P<mlabel>.*?)</mention-(?P=mkind)>|/>)',
+    re.DOTALL,
 )
+# Non-greedy up to the closing /> so a '/' inside a value (e.g. timeZone="Europe/London") is kept.
+_MENTION_DATE_RE = re.compile(r"<mention-date(?P<dattrs>.*?)\s*/>")
+# Innermost span (its body contains no further <span); resolved repeatedly so
+# nested spans collapse from the inside out.
+_SPAN_RE = re.compile(
+    r'<span(?P<attrs>(?:\s+[\w-]+="[^"]*")*)\s*>'
+    r'(?P<body>(?:(?!<span\b)(?!</span>).)*?)</span>',
+    re.DOTALL,
+)
+_ATTR_RE = re.compile(r'([\w-]+)="([^"]*)"')
 _ESC_RE = re.compile(r"\\([\\`*\[\]<>{}|$~^])")
 _PLACEHOLDER_RE = re.compile(r"(\x00\d+\x00)")  # capturing group so split keeps the markers
 
@@ -265,9 +277,11 @@ def _inline_to_rich(text: str) -> list[dict]:
     """Parse connector-style inline markdown into a rich_text array.
 
     Handles **bold**, *italic*, ~~strike~~, `code`, [t](url), inline math
-    $`expr`$, page/database mentions, and backslash escapes (\\* \\< \\` …) so a
-    round-trip through the renderer is loss-free.
+    $`expr`$, <span color/underline>, <br> line breaks, page/database/user/date
+    mentions, and backslash escapes (\\* \\< \\` …) so a round-trip through the
+    renderer is loss-free.
     """
+    text = text.replace("<br>", "\n")
     stash: dict[str, dict] = {}
 
     def _put(obj: dict) -> str:
@@ -275,10 +289,25 @@ def _inline_to_rich(text: str) -> list[dict]:
         stash[key] = obj
         return key
 
+    # Resolve spans first (recursively), so their inner markdown is parsed and the
+    # color/underline annotation is folded into each resulting token.
+    while True:
+        sm = _SPAN_RE.search(text)
+        if not sm:
+            break
+        attrs = dict(_ATTR_RE.findall(sm.group("attrs")))
+        tokens = _inline_to_rich(sm.group("body"))
+        color = attrs.get("color")
+        underline = attrs.get("underline") == "true"
+        for tok in tokens:
+            _apply_span(tok, color, underline)
+        text = text[:sm.start()] + _put({"_tokens": tokens}) + text[sm.end():]
+
     # Protect equations, mentions and escaped chars as opaque placeholders so the
     # bold/italic/link pass below can't misinterpret their contents.
+    text = _MENTION_DATE_RE.sub(lambda m: _put(_date_mention_obj(m.group("dattrs"))), text)
+    text = _MENTION_RE.sub(lambda m: _put(_mention_obj(m.group("mkind"), m.group("murl"), m.group("mlabel") or "")), text)
     text = _MATH_RE.sub(lambda m: _put({"type": "equation", "equation": {"expression": m.group("math")}}), text)
-    text = _MENTION_RE.sub(lambda m: _put(_mention_obj(m.group("mkind"), m.group("murl"), m.group("mlabel"))), text)
     text = _ESC_RE.sub(lambda m: _put({"_literal": m.group(1)}), text)
 
     out: list[dict] = []
@@ -303,10 +332,10 @@ def _inline_to_rich(text: str) -> list[dict]:
 
 
 def _emit_inline(out: list[dict], seg: str, stash: dict[str, dict], **ann) -> None:
-    """Emit a text segment, restoring stashed equation/mention/literal placeholders.
+    """Emit a text segment, restoring stashed equation/mention/span/literal placeholders.
 
-    Literals merge into the surrounding annotated text; equations/mentions become
-    their own tokens (annotations don't apply to them in Notion).
+    Literals merge into the surrounding annotated text; equations/mentions/span
+    tokens become their own tokens (outer annotations are merged onto spans).
     """
     if not seg:
         return
@@ -324,10 +353,41 @@ def _emit_inline(out: list[dict], seg: str, stash: dict[str, dict], **ann) -> No
             buf += part
         elif "_literal" in obj:
             buf += obj["_literal"]
+        elif "_tokens" in obj:
+            flush()
+            for tok in obj["_tokens"]:
+                if ann:
+                    _merge_ann(tok, ann)
+                out.append(tok)
         else:
             flush()
             out.append(obj)
     flush()
+
+
+def _merge_ann(tok: dict, ann: dict) -> None:
+    """Fold an outer annotation (bold/italic/link/…) onto an inner span token."""
+    if tok.get("type") not in ("text", None):
+        return
+    a = tok.setdefault("annotations", {})
+    for k, v in ann.items():
+        if not v:
+            continue
+        if k == "link":
+            tok.setdefault("text", {})["link"] = {"url": v}
+        else:
+            a[k] = v
+
+
+def _apply_span(tok: dict, color: str | None, underline: bool) -> None:
+    """Apply a <span>'s color/underline to one inner token (text only)."""
+    if tok.get("type") not in ("text", None):
+        return
+    a = tok.setdefault("annotations", {})
+    if underline:
+        a["underline"] = True
+    if color and color != "default":
+        a["color"] = _api_color(color)
 
 
 def _mention_obj(kind: str, url: str | None, label: str) -> dict:
@@ -337,8 +397,29 @@ def _mention_obj(kind: str, url: str | None, label: str) -> dict:
         return {"type": "mention", "mention": {"type": "page", "page": {"id": rid}}}
     if kind == "database" and rid:
         return {"type": "mention", "mention": {"type": "database", "database": {"id": rid}}}
-    # User mentions can't be reconstructed from a label (no id); keep the text.
+    if kind == "user" and rid:
+        return {"type": "mention", "mention": {"type": "user", "user": {"id": rid}}}
+    # data-source / agent mentions have no REST rich_text form; keep the label.
     return _text_obj(label)
+
+
+def _date_mention_obj(attrs_str: str) -> dict:
+    """Build a date mention from <mention-date start=.. startTime=.. end=.. timeZone=../>."""
+    attrs = dict(_ATTR_RE.findall(attrs_str))
+    start = attrs.get("start")
+    if not start:
+        return _text_obj("")
+    if attrs.get("startTime"):
+        start = f'{start}T{attrs["startTime"]}'
+    d: dict = {"start": start}
+    end = attrs.get("end")
+    if end:
+        if attrs.get("endTime"):
+            end = f'{end}T{attrs["endTime"]}'
+        d["end"] = end
+    if attrs.get("timeZone"):
+        d["time_zone"] = attrs["timeZone"]
+    return {"type": "mention", "mention": {"type": "date", "date": d}}
 
 
 def _id_from_url(url: str | None) -> str | None:
@@ -368,86 +449,326 @@ def _text_obj(content: str, bold=False, italic=False, code=False, strikethrough=
     return obj
 
 
+# Block types that may carry indented child blocks (others ignore indentation).
+_CHILD_OK = {
+    "paragraph", "bulleted_list_item", "numbered_list_item", "to_do", "quote",
+    "callout", "toggle",
+}
+# Lines that begin a block (used to tell a callout's leading rich_text from a child block).
+_BLOCK_START_RE = re.compile(
+    r"^(#{1,4}\s|[-*] |> |\d+\. |```|---$|\*\*\*$|___$|\$\$$"
+    r"|<empty-block/>|<callout|<details|<columns|<column>|<table[ >]|<synced_block"
+    r"|<page[ >]|<video |<audio |<file |<pdf |<table_of_contents|!\[)"
+)
+_BLOCK_COLOR_RE = re.compile(r'(?<!\\)\s*\{color="([^"]+)"\}\s*$')
+
+
 def markdown_to_blocks(md: str) -> list[dict]:
-    """Convert a markdown string into Notion block objects (common types)."""
+    """Convert Notion-flavored markdown into REST block objects.
+
+    Recursive: container blocks (<details>, <callout>, <columns>/<column>,
+    <table>, <synced_block>) wrap tab-indented children, and any text/list/quote
+    block may carry indented child blocks. Mirrors render_blocks so writes
+    round-trip what reads produce.
+    """
+    return _parse_blocks(md.split("\n"))
+
+
+def _parse_blocks(lines: list[str]) -> list[dict]:
     blocks: list[dict] = []
-    lines = md.split("\n")
     i = 0
     while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-
-        if stripped.startswith("```"):
-            lang = stripped[3:].strip() or "plain text"
-            code_lines: list[str] = []
-            i += 1
-            while i < len(lines) and not lines[i].strip().startswith("```"):
-                code_lines.append(lines[i])
-                i += 1
-            blocks.append({
-                "object": "block", "type": "code",
-                "code": {"rich_text": [_text_obj("\n".join(code_lines))], "language": lang},
-            })
+        if not lines[i].strip():
             i += 1
             continue
-
-        if not stripped:
-            i += 1
-            continue
-
-        if stripped == "<empty-block/>":
-            blocks.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": []}})
-        elif re.match(r"^!\[[^\]]*\]\(([^)]*)\)$", stripped):
-            url = re.match(r"^!\[[^\]]*\]\(([^)]*)\)$", stripped).group(1)
-            if url:
-                blocks.append({"object": "block", "type": "image",
-                               "image": {"type": "external", "external": {"url": url}}})
-            else:
-                blocks.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": []}})
-        elif stripped in ("---", "***", "___"):
-            blocks.append({"object": "block", "type": "divider", "divider": {}})
-        elif stripped.startswith("#### "):
-            blocks.append(_heading(4, stripped[5:]))
-        elif stripped.startswith("### "):
-            blocks.append(_heading(3, stripped[4:]))
-        elif stripped.startswith("## "):
-            blocks.append(_heading(2, stripped[3:]))
-        elif stripped.startswith("# "):
-            blocks.append(_heading(1, stripped[2:]))
-        elif re.match(r"^[-*] \[[ xX]\] ", stripped):
-            checked = stripped[3] in ("x", "X")
-            blocks.append({
-                "object": "block", "type": "to_do",
-                "to_do": {"rich_text": _inline_to_rich(stripped[6:]), "checked": checked},
-            })
-        elif stripped.startswith(("- ", "* ")):
-            blocks.append({
-                "object": "block", "type": "bulleted_list_item",
-                "bulleted_list_item": {"rich_text": _inline_to_rich(stripped[2:])},
-            })
-        elif re.match(r"^\d+\. ", stripped):
-            content = re.sub(r"^\d+\. ", "", stripped)
-            blocks.append({
-                "object": "block", "type": "numbered_list_item",
-                "numbered_list_item": {"rich_text": _inline_to_rich(content)},
-            })
-        elif stripped.startswith("> "):
-            blocks.append({
-                "object": "block", "type": "quote",
-                "quote": {"rich_text": _inline_to_rich(stripped[2:])},
-            })
-        else:
-            blocks.append({
-                "object": "block", "type": "paragraph",
-                "paragraph": {"rich_text": _inline_to_rich(stripped)},
-            })
-        i += 1
+        block, i = _parse_one(lines, i)
+        if block is not None:
+            blocks.append(block)
     return blocks
 
 
-def _heading(level: int, text: str) -> dict:
+def _parse_one(lines: list[str], i: int) -> tuple[dict | None, int]:
+    line = lines[i]
+    stripped = line.strip()
+    base = _indent_level(line)
+
+    # ---- multi-line constructs ----
+    if stripped.startswith("```"):
+        lang = stripped[3:].strip() or "plain text"
+        code_lines: list[str] = []
+        i += 1
+        while i < len(lines) and not lines[i].strip().startswith("```"):
+            code_lines.append(lines[i])
+            i += 1
+        return (_blk("code", {"rich_text": [_text_obj("\n".join(code_lines))], "language": lang}), i + 1)
+
+    if stripped == "$$":
+        expr: list[str] = []
+        i += 1
+        while i < len(lines) and lines[i].strip() != "$$":
+            expr.append(lines[i].strip())
+            i += 1
+        return (_blk("equation", {"expression": "\n".join(expr)}), i + 1)
+
+    m = re.match(r'^<details(?:\s+color="([^"]*)")?\s*>$', stripped)
+    if m:
+        j = _find_close(lines, i, "</details>")
+        return (_parse_toggle(lines[i + 1:j], base, m.group(1)), j + 1)
+
+    m = re.match(r'^<callout((?:\s+[\w-]+="[^"]*")*)\s*>$', stripped)
+    if m:
+        j = _find_close(lines, i, "</callout>")
+        return (_parse_callout(lines[i + 1:j], m.group(1)), j + 1)
+
+    if stripped == "<columns>":
+        j = _find_close(lines, i, "</columns>")
+        return (_parse_columns(lines[i + 1:j]), j + 1)
+
+    m = re.match(r'^<table((?:\s+[\w-]+="[^"]*")*)\s*>$', stripped)
+    if m:
+        j = _find_close(lines, i, "</table>")
+        return (_parse_table(lines[i + 1:j], m.group(1)), j + 1)
+
+    m = re.match(r'^<synced_block(?:\s+url="([^"]*)")?\s*>$', stripped)
+    if m:
+        j = _find_close(lines, i, "</synced_block>")
+        kids = _parse_blocks(_dedent_to_zero(lines[i + 1:j]))
+        d: dict = {"synced_from": None}
+        if kids:
+            d["children"] = kids
+        return (_blk("synced_block", d), j + 1)
+
+    m = re.match(r'^<synced_block_reference\s+url="([^"]*)"[^>]*>$', stripped)
+    if m:
+        j = _find_close(lines, i, "</synced_block_reference>")
+        rid = _id_from_url(m.group(1))
+        return (_blk("synced_block", {"synced_from": {"block_id": rid} if rid else None}), j + 1)
+
+    # ---- leaf line (+ generic indented children) ----
+    block = _leaf_block(stripped)
+    i += 1
+    if block is None:
+        return (None, i)
+    if block["type"] in _CHILD_OK:
+        child_lines: list[str] = []
+        while i < len(lines) and (not lines[i].strip() or _indent_level(lines[i]) > base):
+            child_lines.append(lines[i])
+            i += 1
+        kids = _parse_blocks(_dedent_to_zero(child_lines))
+        if kids:
+            block[block["type"]]["children"] = kids
+    return (block, i)
+
+
+def _leaf_block(s: str) -> dict | None:
+    """Parse one non-container line into a block (color attr honored)."""
+    s, color = _strip_block_color(s)
+
+    def col(d: dict) -> dict:
+        if color:
+            d["color"] = color
+        return d
+
+    if s == "<empty-block/>":
+        return _blk("paragraph", {"rich_text": []})
+    if re.match(r"^<table_of_contents\b", s):
+        return _blk("table_of_contents", col({}))
+
+    m = re.match(r"^!\[([^\]]*)\]\(([^)]*)\)$", s)
+    if m:
+        url = m.group(2)
+        if not url:
+            return _blk("paragraph", {"rich_text": []})
+        img: dict = {"type": "external", "external": {"url": url}}
+        if m.group(1):
+            img["caption"] = _inline_to_rich(m.group(1))
+        return _blk("image", col(img))
+
+    m = re.match(r'^<(video|audio|file|pdf)\s+src="([^"]*)"[^>]*>(.*)</\1>$', s, re.DOTALL)
+    if m:
+        kind, url, cap = m.group(1), m.group(2), m.group(3)
+        data: dict = {"type": "external", "external": {"url": url}}
+        if cap:
+            data["caption"] = _inline_to_rich(cap)
+        return _blk(kind, col(data))
+
+    m = re.match(r'^<page\s+url="([^"]*)"[^>]*>(.*)</page>$', s, re.DOTALL)
+    if m:
+        rid = _id_from_url(m.group(1))
+        if rid:
+            return _blk("link_to_page", {"type": "page_id", "page_id": rid})
+        # New child page (no URL) can't be created via a block append — keep the title text.
+        return _blk("paragraph", col({"rich_text": _inline_to_rich(m.group(2))}))
+
+    if s in ("---", "***", "___"):
+        return _blk("divider", {})
+    if s.startswith("#### "):
+        return _heading(4, s[5:], color)
+    if s.startswith("### "):
+        return _heading(3, s[4:], color)
+    if s.startswith("## "):
+        return _heading(2, s[3:], color)
+    if s.startswith("# "):
+        return _heading(1, s[2:], color)
+    if re.match(r"^[-*] \[[ xX]\] ", s):
+        checked = s[3] in ("x", "X")
+        return _blk("to_do", col({"rich_text": _inline_to_rich(s[6:]), "checked": checked}))
+    if s.startswith(("- ", "* ")):
+        return _blk("bulleted_list_item", col({"rich_text": _inline_to_rich(s[2:])}))
+    if re.match(r"^\d+\. ", s):
+        return _blk("numbered_list_item", col({"rich_text": _inline_to_rich(re.sub(r"^\d+\. ", "", s))}))
+    if s.startswith("> "):
+        return _blk("quote", col({"rich_text": _inline_to_rich(s[2:])}))
+    return _blk("paragraph", col({"rich_text": _inline_to_rich(s)}))
+
+
+def _parse_toggle(body: list[str], base: int, color: str | None) -> dict:
+    rt: list[dict] = []
+    child_lines: list[str] = []
+    for ln in body:
+        s = ln.strip()
+        if _indent_level(ln) == base and s.startswith("<summary>") and s.endswith("</summary>"):
+            rt = _inline_to_rich(s[len("<summary>"):-len("</summary>")])
+        else:
+            child_lines.append(ln)
+    d: dict = {"rich_text": rt}
+    if color:
+        d["color"] = _api_color(color)
+    kids = _parse_blocks(_dedent_to_zero(child_lines))
+    if kids:
+        d["children"] = kids
+    return _blk("toggle", d)
+
+
+def _parse_callout(body: list[str], attr_str: str) -> dict:
+    attrs = dict(_ATTR_RE.findall(attr_str))
+    body = _dedent_to_zero(body)
+    rt: list[dict] = []
+    idx = next((k for k, ln in enumerate(body) if ln.strip()), None)
+    if idx is not None and _is_inline_line(body[idx].strip()):
+        rt = _inline_to_rich(body[idx].strip())
+        body = body[idx + 1:]
+    d: dict = {"rich_text": rt}
+    if attrs.get("icon"):
+        d["icon"] = {"type": "emoji", "emoji": attrs["icon"]}
+    if attrs.get("color") and attrs["color"] != "default":
+        d["color"] = _api_color(attrs["color"])
+    kids = _parse_blocks(body)
+    if kids:
+        d["children"] = kids
+    return _blk("callout", d)
+
+
+def _parse_columns(body: list[str]) -> dict:
+    body = _dedent_to_zero(body)
+    columns: list[dict] = []
+    k = 0
+    while k < len(body):
+        if body[k].strip() == "<column>":
+            cj = _find_close(body, k, "</column>")
+            kids = _parse_blocks(_dedent_to_zero(body[k + 1:cj]))
+            columns.append(_blk("column", {"children": kids or [_blk("paragraph", {"rich_text": []})]}))
+            k = cj + 1
+        else:
+            k += 1
+    return _blk("column_list", {"children": columns})
+
+
+def _parse_table(body: list[str], attr_str: str) -> dict | None:
+    attrs = dict(_ATTR_RE.findall(attr_str))
+    rows: list[list[list[dict]]] = []
+    k = 0
+    while k < len(body):
+        s = body[k].strip()
+        if s == "<tr>" or s.startswith("<tr "):
+            cells: list[list[dict]] = []
+            k += 1
+            while k < len(body) and body[k].strip() != "</tr>":
+                cm = re.match(r'^<td(?:\s+color="[^"]*")?>(.*)</td>$', body[k].strip(), re.DOTALL)
+                if cm:
+                    cells.append(_inline_to_rich(cm.group(1)) if cm.group(1) else [])
+                k += 1
+            rows.append(cells)
+        k += 1
+    width = max((len(r) for r in rows), default=0)
+    if width == 0:
+        return None
+    children = [
+        {"object": "block", "type": "table_row",
+         "table_row": {"cells": r + [[] for _ in range(width - len(r))]}}
+        for r in rows
+    ]
+    return _blk("table", {
+        "table_width": width,
+        "has_column_header": attrs.get("header-row") == "true",
+        "has_row_header": attrs.get("header-column") == "true",
+        "children": children,
+    })
+
+
+def _blk(t: str, data: dict) -> dict:
+    return {"object": "block", "type": t, t: data}
+
+
+def _heading(level: int, text: str, color: str | None = None) -> dict:
     key = f"heading_{level}"
-    return {"object": "block", "type": key, key: {"rich_text": _inline_to_rich(text)}}
+    data: dict = {"rich_text": _inline_to_rich(text)}
+    if color:
+        data["color"] = color
+    return {"object": "block", "type": key, key: data}
+
+
+def _is_inline_line(s: str) -> bool:
+    """True if a line is plain inline rich text rather than the start of a block."""
+    return not _BLOCK_START_RE.match(s)
+
+
+def _indent_level(line: str) -> int:
+    n = 0
+    for ch in line:
+        if ch == "\t":
+            n += 1
+        else:
+            break
+    return n
+
+
+def _dedent_to_zero(lines: list[str]) -> list[str]:
+    """Strip the common leading-tab indentation so children parse at level 0."""
+    nonblank = [ln for ln in lines if ln.strip()]
+    if not nonblank:
+        return lines
+    n = min(_indent_level(ln) for ln in nonblank)
+    return [ln[n:] if ln.strip() else "" for ln in lines]
+
+
+def _find_close(lines: list[str], open_idx: int, close_tag: str) -> int:
+    """Index of the matching close tag (same indent level), or end-of-list."""
+    lvl = _indent_level(lines[open_idx])
+    for j in range(open_idx + 1, len(lines)):
+        if lines[j].strip() == close_tag and _indent_level(lines[j]) == lvl:
+            return j
+    return len(lines)
+
+
+def _strip_block_color(s: str) -> tuple[str, str | None]:
+    """Pull a trailing {color="X"} block attribute off a line; return (text, api_color)."""
+    m = _BLOCK_COLOR_RE.search(s)
+    if m:
+        return s[:m.start()].rstrip(), _api_color(m.group(1))
+    return s, None
+
+
+def _api_color(c: str | None) -> str | None:
+    """Spec color (blue_bg) -> Notion API color (blue_background)."""
+    if not c:
+        return None
+    return c.replace("_bg", "_background")
+
+
+def _md_color(c: str) -> str:
+    """Notion API color (blue_background) -> spec color (blue_bg)."""
+    return c.replace("_background", "_bg")
 
 
 def rich_text_md(rich: list[dict] | None) -> str:
@@ -475,9 +796,9 @@ def rich_text_md(rich: list[dict] | None) -> str:
         ann = t.get("annotations") or {}
         if ann.get("code"):
             # Code spans are literal — wrap raw, don't markdown-escape inside.
-            content = f"`{raw}`"
+            content = "`" + raw.replace("\n", "<br>") + "`"
         else:
-            content = _escape_md(raw)
+            content = _escape_md(raw).replace("\n", "<br>")
             if ann.get("bold"):
                 content = f"**{content}**"
             if ann.get("italic"):
@@ -489,6 +810,15 @@ def rich_text_md(rich: list[dict] | None) -> str:
         href = link.get("url") if isinstance(link, dict) else None
         if href:
             content = f"[{content}]({href})"
+        # Underline + non-default color have no markdown form; wrap in <span>.
+        span_attrs = ""
+        if ann.get("underline"):
+            span_attrs += ' underline="true"'
+        color = ann.get("color")
+        if color and color != "default":
+            span_attrs += f' color="{_md_color(color)}"'
+        if span_attrs:
+            content = f"<span{span_attrs}>{content}</span>"
         out.append(content)
     return "".join(out)
 
@@ -518,7 +848,9 @@ def _mention_md(token: dict) -> str:
     if mtype == "database":
         return f'<mention-database url="{_notion_url((m.get("database") or {}).get("id"))}">{label}</mention-database>'
     if mtype == "user":
-        return f"<mention-user>{label}</mention-user>"
+        uid = (m.get("user") or {}).get("id")
+        url = _notion_url(uid)
+        return f'<mention-user url="{url}">{label}</mention-user>' if url else f"<mention-user>{label}</mention-user>"
     if mtype == "date":
         d = m.get("date") or {}
         attrs = f' start="{d["start"]}"' if d.get("start") else ""
@@ -551,6 +883,12 @@ def _callout_open(data: dict) -> str:
     return f"<callout{attrs}>"
 
 
+def _color_suffix(data: dict) -> str:
+    """The connector's ` {color="X"}` trailing block-color attribute, or ''."""
+    c = data.get("color")
+    return f' {{color="{_md_color(c)}"}}' if c and c != "default" else ""
+
+
 def block_to_markdown(block: dict) -> str:
     """Render a single (non-container) block to a connector-style markdown line.
 
@@ -562,16 +900,17 @@ def block_to_markdown(block: dict) -> str:
     if not isinstance(data, dict):
         data = {}
     text = rich_text_md(data.get("rich_text"))
+    cs = _color_suffix(data)
     if t in ("heading_1", "heading_2", "heading_3", "heading_4"):
-        return f"{'#' * int(t.split('_')[1])} {text}"
+        return f"{'#' * int(t.split('_')[1])} {text}{cs}"
     if t == "bulleted_list_item":
-        return f"- {text}"
+        return f"- {text}{cs}"
     if t == "numbered_list_item":
-        return f"1. {text}"
+        return f"1. {text}{cs}"
     if t == "to_do":
-        return f"- [{'x' if data.get('checked') else ' '}] {text}"
+        return f"- [{'x' if data.get('checked') else ' '}] {text}{cs}"
     if t == "quote":
-        return f"> {text}"
+        return f"> {text}{cs}"
     if t == "code":
         lang = data.get("language") or "plain text"
         return f"```{lang}\n{rich_text_plain(data.get('rich_text'))}\n```"
@@ -580,9 +919,10 @@ def block_to_markdown(block: dict) -> str:
     if t == "equation":
         return f"$$\n{data.get('expression', '')}\n$$"
     if t == "image":
-        return f"![{rich_text_plain(data.get('caption'))}]({_file_url(data)})"
+        return f"![{rich_text_plain(data.get('caption'))}]({_file_url(data)}){cs}"
     if t in ("video", "audio", "file", "pdf"):
-        return f'<{t} src="{_file_url(data)}">{rich_text_plain(data.get("caption"))}</{t}>'
+        color = f' color="{_md_color(data["color"])}"' if data.get("color") and data["color"] != "default" else ""
+        return f'<{t} src="{_file_url(data)}"{color}>{rich_text_plain(data.get("caption"))}</{t}>'
     if t in ("bookmark", "embed", "link_preview"):
         url = data.get("url", "")
         label = rich_text_plain(data.get("caption")) or url
@@ -599,9 +939,9 @@ def block_to_markdown(block: dict) -> str:
     if t == "breadcrumb":
         return ""
     if t == "paragraph":
-        return text if text else "<empty-block/>"
+        return f"{text}{cs}" if text else "<empty-block/>"
     if text:
-        return text
+        return f"{text}{cs}"
     return "<unknown/>"
 
 
@@ -633,7 +973,9 @@ def _render_one(client: NotionClient, blk: dict, depth: int, counter: dict,
     has_kids = bool(blk.get("has_children")) and depth < _MAX_CHILD_DEPTH
 
     if t == "toggle":
-        md_parts.append("<details>")
+        color = data.get("color")
+        cattr = f' color="{_md_color(color)}"' if color and color != "default" else ""
+        md_parts.append(f"<details{cattr}>")
         md_parts.append(f"<summary>{rich_text_md(data.get('rich_text'))}</summary>")
         if has_kids:
             sub = _render_children(client, blk, depth, counter, flat)
