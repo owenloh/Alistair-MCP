@@ -60,12 +60,16 @@ class Settings(BaseSettings):
     ms_todo_list_id: str | None = None
     ms_tenant: str = "consumers"
 
-    # ---- GitHub (gist storage for the MS token; also the future push-file route) ----
-    github_token: str | None = None
+    # ---- GitHub: gist token (stores the rotating MS To Do refresh token) ----
+    # Named GITHUB_GIST_TOKEN to distinguish it from the repo token below; the old
+    # GITHUB_TOKEN env name still works (alias) so nothing breaks on rename.
+    github_gist_token: str | None = Field(
+        default=None, validation_alias=AliasChoices("GITHUB_GIST_TOKEN", "GITHUB_TOKEN")
+    )
     gist_id: str | None = None
     gist_filename: str = "mstodo_refresh_token"
-    # Separate fine-grained PAT for repo read + PR (merge) so the gist token stays
-    # minimal. Falls back to github_token if a dedicated one isn't set.
+    # Separate fine-grained PAT for repo read + PR (merge), kept distinct from the gist
+    # token. Falls back to the gist token if a dedicated one isn't set.
     github_repo_token: str | None = None
 
     # ---- Memory (SQLite append-only event log) ----
@@ -103,7 +107,7 @@ class Settings(BaseSettings):
     def github_read_token(self) -> str | None:
         """Token for the repo-read + merge_pr endpoints. Prefer the dedicated
         fine-grained PAT; fall back to the gist token so one token also works."""
-        return self.github_repo_token or self.github_token
+        return self.github_repo_token or self.github_gist_token
 
     def memory_db_file(self) -> str:
         """Resolve the SQLite path: explicit override > Railway volume > ./data."""

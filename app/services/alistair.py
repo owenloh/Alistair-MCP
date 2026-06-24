@@ -143,7 +143,7 @@ def project_context(settings: Settings, owner: str, repo: str, *, commits: int =
         token = settings.github_read_token
         if not token:
             raise ServiceError(
-                "GITHUB_REPO_TOKEN (or GITHUB_TOKEN) is not configured.", status_code=503
+                "GITHUB_REPO_TOKEN (or GITHUB_GIST_TOKEN) is not configured.", status_code=503
             )
         gh = GitHubClient(token)
         own_client = True

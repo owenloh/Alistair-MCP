@@ -132,8 +132,8 @@ def root() -> dict:
         "configured": {
             "notion": bool(s.notion_token),
             "calendar": bool(s.google_calendar_token or s.google_refresh_token),
-            "intray": bool(s.ms_client_id and s.ms_todo_list_id and s.github_token and s.gist_id),
-            "github_push": bool(s.github_token),
+            "intray": bool(s.ms_client_id and s.ms_todo_list_id and s.github_gist_token and s.gist_id),
+            "github_push": bool(s.github_gist_token),
             "github_read": bool(s.github_read_token),
             "memory_persistent": s.memory_is_persistent,
             "api_key_required": bool(s.service_api_key),
@@ -144,7 +144,7 @@ def root() -> dict:
             "server_name": "alistair_assistant",
             "oauth_enabled": OAUTH_ENABLED,
             "auth": (
-                "OAuth 2.1 (dynamic client registration, auto-approve) + Bearer/X-API-Key = SERVICE_API_KEY"
+                "OAuth 2.1 (dynamic client registration, operator-approved via password) + Bearer/X-API-Key = SERVICE_API_KEY"
                 if OAUTH_ENABLED
                 else "Bearer or X-API-Key = SERVICE_API_KEY (OAuth off — no public base URL set)"
             ),

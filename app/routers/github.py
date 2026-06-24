@@ -36,13 +36,13 @@ router = APIRouter(
     "/push-file",
     summary="Create or update a file in a repo",
     description="Commits content to owner/repo at path (create or update). "
-    "Uses GITHUB_TOKEN.",
+    "Uses GITHUB_GIST_TOKEN.",
 )
 def push_file(body: PushFileRequest) -> dict:
     settings = get_settings()
-    if not settings.github_token:
-        raise ServiceError("GITHUB_TOKEN is not configured.", status_code=503)
-    with GitHubClient(settings.github_token) as gh:
+    if not settings.github_gist_token:
+        raise ServiceError("GITHUB_GIST_TOKEN is not configured.", status_code=503)
+    with GitHubClient(settings.github_gist_token) as gh:
         return gh.push_file(
             owner=body.owner,
             repo=body.repo,
@@ -58,7 +58,7 @@ def _read_token() -> str:
     token = get_settings().github_read_token
     if not token:
         raise ServiceError(
-            "GITHUB_REPO_TOKEN (or GITHUB_TOKEN) is not configured.", status_code=503
+            "GITHUB_REPO_TOKEN (or GITHUB_GIST_TOKEN) is not configured.", status_code=503
         )
     return token
 

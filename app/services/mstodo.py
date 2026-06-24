@@ -29,7 +29,7 @@ def _require_config(settings: Settings) -> None:
         for name, val in (
             ("MS_CLIENT_ID", settings.ms_client_id),
             ("MS_TODO_LIST_ID", settings.ms_todo_list_id),
-            ("GITHUB_TOKEN", settings.github_token),
+            ("GITHUB_GIST_TOKEN", settings.github_gist_token),
             ("GIST_ID", settings.gist_id),
         )
         if not val
@@ -144,7 +144,7 @@ def _done(settings: Settings, token: str, task_id: str | None) -> dict:
 
 def run(settings: Settings, action: str, title: str | None, task_id: str | None) -> dict:
     _require_config(settings)
-    with GitHubClient(settings.github_token) as gh:
+    with GitHubClient(settings.github_gist_token) as gh:
         token = _access_token(settings, gh)
         if action == "list":
             return _list(settings, token)
