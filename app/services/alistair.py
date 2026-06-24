@@ -11,6 +11,9 @@ the HTTP layer and the future MCP tell the model exactly the same thing.
 """
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from . import ServiceError
 from ..config import Settings
 from ..skills import skill_index
@@ -35,25 +38,44 @@ _LIBRARY_HUB_PAGE = "1fa6f0cc-dd76-809e-8bcb-e5db5ae28237"      # parent hub —
 _BRIEFING_PAGE = "3806f0cc-dd76-80bb-9e16-fcce720de5ee"         # daily-brief's only write target
 
 ROUTING = [
-    {"says": ["references", "add to tray", "add to references", "save this reference"],
-     "means": "Append to the References Tray (page 'Unorganised References'). Load the "
-              "notion-references-tray skill first; never write to the Library hub."},
     {"says": ["brief me", "daily brief", "morning brief", "what's on today"],
-     "means": "Run the daily brief: POST /api/alistair/daily-brief, then deliver per the "
-              "daily-brief skill. Read-only except the Briefing page."},
-    {"says": ["in-tray", "capture", "remind me to", "add a task"],
-     "means": "The Microsoft To Do in-tray is the ONE capture surface: POST /api/intray."},
-    {"says": ["any Notion write"],
-     "means": "Load the notion-master skill FIRST for the safe-write protocol before any "
-              "/api/notion write."},
+     "use": "daily_brief (one call: Notion structure + today's calendar + in-tray), then "
+            "deliver per get_skill('daily-brief'). Read-only; it proposes, never files."},
+    {"says": ["references", "add to tray", "save this reference"],
+     "use": "save_reference (appends to the References Tray). Load get_skill('notion-references-tray') "
+            "for placement; the safe-write protocol in notion-master governs. Never write the Library hub."},
+    {"says": ["in-tray", "capture", "remind me to", "quick task"],
+     "use": "intray (action=list|add|done|delete) — the ONE capture surface. Not memory, not a Notion action."},
+    {"says": ["my Next actions", "Someday items", "Active projects", "any filtered Notion list"],
+     "use": "notion_query_database with an explicit filter (or daily_brief / load_context, which return "
+            "them pre-filtered). Saved view:// URLs are not API-readable."},
+    {"says": ["read a Notion page", "open <page>", "find in Notion"],
+     "use": "notion_search to locate, then notion_fetch by id/URL."},
+    {"says": ["any Notion write or edit"],
+     "use": "Load get_skill('notion-master') FIRST and follow the safe-write protocol: notion_update_page "
+            "command=update_content with content_updates=[{old_str, new_str}]; NEVER replace_content."},
+    {"says": ["add a task/action to Notion (explicit)"],
+     "use": "add_action (creates ONE Next action). Capture-only 'remind me' goes to intray instead."},
+    {"says": ["calendar", "schedule", "am I free", "book a slot"],
+     "use": "calendar_today / calendar_list_events / calendar_create_event / calendar_suggest_time. "
+            "Times are in your current timezone (see now.timezone)."},
+    {"says": ["email", "gmail", "draft a reply", "check my mail"],
+     "use": "gmail_search then gmail_read_thread to read; gmail_create_draft to draft. DRAFTS only — never sends."},
+    {"says": ["what's happening with <project>", "open PRs", "project status"],
+     "use": "project_context(owner, repo) — repo meta + commits + PRs + issues + README in one call."},
+    {"says": ["remember this", "forget that", "what do you know about me"],
+     "use": "save_memory to write a durable fact (op='retract' to forget); get_memory to read (also in this context)."},
 ]
 
 SAFETY = [
-    "Notion is sacred. Every write is read-first (fetch + keep the before-state), "
-    "insert/update/targeted-edit ONLY, NEVER replace_content whole-page overwrite, then "
-    "re-fetch and verify nothing else changed. Load notion-master before any Notion write.",
+    "Notion is sacred. Every write is read-first (notion_fetch + keep the before-state), then a "
+    "TARGETED edit only: notion_update_page command=update_content with content_updates=[{old_str, "
+    "new_str}]. NEVER replace_content (whole-page overwrite). Re-fetch and verify nothing else changed. "
+    "Load get_skill('notion-master') before any Notion write.",
     "The daily brief PROPOSES; it never auto-files, completes, moves, or deletes tasks, and "
     "never modifies Notion structure. Triage is always a proposal for Owen to action by hand.",
+    "Sensitive/irreversible actions need explicit confirmation: github_merge_pr returns a preview "
+    "unless confirm=true; Gmail is draft-only and never sends.",
     "Don't fabricate. If a read fails or returns nothing, say so plainly instead of guessing.",
 ]
 
@@ -65,13 +87,42 @@ def _id_registry(settings: Settings) -> dict:
         "references_tray_page": _REFERENCES_TRAY_PAGE,
         "library_hub_page": _LIBRARY_HUB_PAGE,
         "briefing_page": _BRIEFING_PAGE,
-        "note": "Saved Notion views (view://...) are NOT readable over the public REST API; "
-                "use /api/notion/query-database with an explicit filter instead.",
+        "note": "Saved Notion views (view://...) are NOT readable over the API; "
+                "use notion_query_database with an explicit filter instead.",
+    }
+
+
+def _now_context(settings: Settings) -> dict:
+    """Current date/time + the timezone Alistair is operating in, so every session knows
+    'when' (and roughly 'where') without a separate call. Timezone follows the live Google
+    Calendar setting when auto-detect is on and reachable (so it tracks travel), else the
+    configured default. Location is inferred from the timezone, not GPS."""
+    tz_name = (settings.calendar_timezone or "Europe/London").strip() or "Europe/London"
+    try:
+        from . import calendar as calendar_service
+        tz_name = calendar_service.current_timezone(settings) or tz_name
+    except Exception:
+        pass  # calendar unconfigured / unreachable -> keep the configured default
+    try:
+        now = datetime.now(ZoneInfo(tz_name))
+    except ZoneInfoNotFoundError:
+        tz_name = "Europe/London"
+        now = datetime.now(ZoneInfo(tz_name))
+    region, _, city = tz_name.partition("/")
+    return {
+        "date": now.strftime("%Y-%m-%d"),
+        "weekday": now.strftime("%A"),
+        "time": now.strftime("%H:%M"),
+        "timezone": tz_name,
+        "location_hint": (city or region).replace("_", " "),  # inferred from tz, not GPS
+        "note": "Timezone is your live Google Calendar setting when auto-detect is on (it follows "
+                "travel), else the configured default; location is inferred from it, not GPS. Pin a "
+                "precise home/base with save_memory if you want it fixed.",
     }
 
 
 def load_context(settings: Settings) -> dict:
-    """The session constitution: persona + routing + IDs + skills + live memory.
+    """The session constitution: persona + now + routing + IDs + skills + live memory.
 
     Read-only. Frontends call this FIRST every session. Composes the memory block
     so the model sees stable config and accumulated facts together.
@@ -83,16 +134,19 @@ def load_context(settings: Settings) -> dict:
 
     return {
         "persona": PERSONA,
+        "now": _now_context(settings),
         "routing": ROUTING,
         "id_registry": _id_registry(settings),
         "safety": SAFETY,
         "skills": skill_index(),
         "memory": mem,
         "how_to": (
-            "You are Alistair. Adopt the persona + voice above. Use routing to map what "
-            "Owen says to the right tool; load the named skill (GET /api/skill/{slug}) for "
-            "its full procedure before acting. Honour every safety rule. The memory block is "
-            "what you already know about Owen; save durable new facts with POST /api/memory/save."
+            "You are Alistair. Adopt the persona + voice above. Use `routing` to map what Owen "
+            "says to the right TOOL. Each skill's full procedure lives in this MCP — retrieve it with "
+            "get_skill('<slug>') before acting in its domain; the `skills` list says what each is for "
+            "and when it applies (always load notion-master before any Notion write). Honour every "
+            "safety rule. `now` is the current date/time + the timezone you are operating in. `memory` "
+            "is what you already know about Owen; save durable new facts with save_memory."
         ),
     }
 
@@ -123,7 +177,7 @@ def daily_brief(settings: Settings) -> dict:
         except Exception as e:  # defensive: a brief source must never 500 the whole call
             out["unavailable"].append({"source": key, "reason": str(e)[:200], "status": 500})
 
-    out["deliver_as"] = "Follow the daily-brief skill (GET /api/skill/daily-brief) for format + voice."
+    out["deliver_as"] = "Follow the daily-brief skill (get_skill('daily-brief')) for format + voice."
     return out
 
 

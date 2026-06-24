@@ -127,6 +127,13 @@ def _tz(settings: Settings) -> ZoneInfo:
     return _zoneinfo(_resolve_tz(settings, None))
 
 
+def current_timezone(settings: Settings) -> str:
+    """Public: the timezone Alistair is operating in — the live Google Calendar
+    account timezone when auto-detect is on and reachable (so it follows travel),
+    else the configured default. Used by load_context's `now` block."""
+    return _resolve_tz(settings, None)
+
+
 def _format_event(ev: dict, tz: ZoneInfo) -> dict:
     start = ev.get("start", {})
     end = ev.get("end", {})

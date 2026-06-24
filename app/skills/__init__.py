@@ -42,6 +42,7 @@ def skill_index() -> list[dict]:
             "slug": slug,
             "name": data.get("name", slug),
             "description": data.get("description", ""),
-            "url": f"/api/skill/{slug}",
+            "retrieve_with": f"get_skill('{slug}')",  # MCP: fetch the full procedure on demand
+            "url": f"/api/skill/{slug}",               # REST equivalent
         })
     return out
