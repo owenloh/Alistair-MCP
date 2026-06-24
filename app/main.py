@@ -11,12 +11,15 @@ Three layers:
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import __version__
 from .config import get_settings
+from .mcp_server import mcp, mcp_asgi
 from .routers import alistair, calendar, github, intray, memory, notion, skill
 from .services import ServiceError
 from .skills import skill_index
@@ -44,6 +47,15 @@ SHORTCUTS = [
     {"intent": "calendar",
      "calls": ["POST /api/calendar/list-events", "POST /api/calendar/create-event",
                "POST /api/calendar/suggest-time"]},
+    {"intent": "project status / what's happening with <project> / open PRs",
+     "calls": ["POST /api/alistair/project-context {\"owner\":\"<owner>\",\"repo\":\"<repo>\"}"],
+     "then": "summarise what moved / what's waiting in Alistair's voice"},
+    {"intent": "merge a pull request (always preview first)",
+     "calls": ["POST /api/github/merge-pr {\"owner\":\"..\",\"repo\":\"..\",\"number\":N}  (preview only)",
+               "POST /api/github/merge-pr {\"owner\":\"..\",\"repo\":\"..\",\"number\":N,\"confirm\":true}  (after Owen confirms)"]},
+    {"intent": "read code / a file / commits / issues on GitHub",
+     "calls": ["POST /api/github/get-file", "POST /api/github/list-tree",
+               "POST /api/github/recent-commits", "POST /api/github/list-prs"]},
     {"intent": "load what you remember about me (start of session)",
      "calls": ["POST /api/memory/get"]},
     {"intent": "remember / forget a fact about me",
@@ -51,14 +63,25 @@ SHORTCUTS = [
                "POST /api/memory/save {\"op\":\"retract\",\"type\":\"...\",\"content\":\"<same text>\"}"]},
 ]
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # The MCP Streamable-HTTP transport needs its session manager running for the
+    # lifetime of the app. The mounted sub-app's lifespan is not auto-run, so we
+    # run it here from the host app.
+    async with mcp.session_manager.run():
+        yield
+
+
 app = FastAPI(
     title="Alistair Skills API",
     version=__version__,
+    lifespan=lifespan,
     description=(
         "HTTP mirror of Claude's Notion + Google Calendar connectors, the "
         "Microsoft To Do in-tray, and the PARA skills — for use in voice mode "
         "(HTTP-only). Function APIs do things; description APIs (skills) say what "
-        "to do; /api/manifest lists everything."
+        "to do; /api/manifest lists everything. The same tools are exposed as a "
+        "remote MCP (Streamable-HTTP) at /mcp."
     ),
 )
 
@@ -79,6 +102,10 @@ app.include_router(memory.router)
 app.include_router(alistair.router)
 # Skills (description APIs)
 app.include_router(skill.router)
+
+# Remote MCP (Streamable-HTTP) — the same tools for claude.ai / Gemini / voice.
+# Bearer/X-API-Key guarded; endpoint is exactly /mcp (server name: alistair_assistant).
+app.mount("/mcp", mcp_asgi)
 
 
 @app.exception_handler(ServiceError)
@@ -111,8 +138,15 @@ def root() -> dict:
             "calendar": bool(s.google_calendar_token or s.google_refresh_token),
             "intray": bool(s.ms_client_id and s.ms_todo_list_id and s.github_token and s.gist_id),
             "github_push": bool(s.github_token),
+            "github_read": bool(s.github_read_token),
             "memory_persistent": s.memory_is_persistent,
             "api_key_required": bool(s.service_api_key),
+        },
+        "mcp": {
+            "endpoint": "/mcp",
+            "transport": "streamable-http",
+            "server_name": "alistair_assistant",
+            "auth": "Bearer or X-API-Key = SERVICE_API_KEY (OAuth for claude.ai is the next step)",
         },
         "docs": "/docs",
         "manifest": "/api/manifest",

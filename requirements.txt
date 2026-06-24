@@ -6,3 +6,5 @@ pydantic-settings>=2.2,<3.0
 python-dotenv>=1.0,<2.0
 # Ship the IANA tz database so zoneinfo("Europe/London") works in slim containers
 tzdata>=2024.1
+# Remote MCP server (Streamable-HTTP) mounted at /mcp — the alistair_assistant tools
+mcp>=1.20,<2.0

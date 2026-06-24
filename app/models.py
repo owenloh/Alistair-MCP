@@ -40,3 +40,58 @@ class PushFileRequest(BaseModel):
     branch: str | None = Field(
         default=None, description="Target branch. Defaults to the repo default."
     )
+
+
+class _RepoRequest(BaseModel):
+    """Shared owner/repo base for the GitHub read endpoints."""
+
+    owner: str = Field(description="Repository owner (user or org).")
+    repo: str = Field(description="Repository name.")
+
+
+class GetFileRequest(_RepoRequest):
+    path: str = Field(description="Path of the file within the repo.")
+    ref: str | None = Field(default=None, description="Branch/tag/sha. Defaults to the repo default branch.")
+
+
+class ListTreeRequest(_RepoRequest):
+    ref: str | None = Field(default=None, description="Branch/tag/sha. Defaults to the repo default branch.")
+    recursive: bool = Field(default=True, description="Recurse into all subdirectories.")
+
+
+class SearchCodeRequest(BaseModel):
+    query: str = Field(description="Code search query (GitHub code-search syntax).")
+    owner: str | None = Field(default=None, description="Scope to this owner (user/org).")
+    repo: str | None = Field(default=None, description="Scope to this repo (requires owner).")
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class RecentCommitsRequest(_RepoRequest):
+    branch: str | None = Field(default=None, description="Branch/sha. Defaults to the repo default branch.")
+    limit: int = Field(default=10, ge=1, le=100)
+
+
+class ListPullsRequest(_RepoRequest):
+    state: Literal["open", "closed", "all"] = "open"
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class ListIssuesRequest(_RepoRequest):
+    state: Literal["open", "closed", "all"] = "open"
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class GetPullRequest(_RepoRequest):
+    number: int = Field(description="Pull request number.")
+
+
+class MergePullRequest(_RepoRequest):
+    number: int = Field(description="Pull request number.")
+    confirm: bool = Field(
+        default=False,
+        description="MUST be true to actually merge. With false (default) this only "
+        "returns a preview of what would be merged and changes nothing.",
+    )
+    method: Literal["merge", "squash", "rebase"] = "merge"
+    commit_title: str | None = None
+    commit_message: str | None = None
