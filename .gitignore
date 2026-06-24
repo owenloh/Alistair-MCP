@@ -14,6 +14,9 @@ env/
 .mypy_cache/
 .ruff_cache/
 
+# Local ephemeral memory DB (the volume-backed SQLite; recreated on demand)
+/data/
+
 # OS / editor
 .DS_Store
 *.log

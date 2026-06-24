@@ -46,7 +46,7 @@ names = set(by_name)
 
 # === server identity + tool registration ===
 check("server name is snake_case alistair_assistant", M.mcp.name == "alistair_assistant")
-check("26 tools registered (22 + 4 gmail)", len(tools) == 26)
+check("35 tools registered (22 + 4 gmail + whereami + 4 notion + 4 calendar)", len(tools) == 35)
 check("all tool names snake_case (no hyphens)",
       all(n.replace("_", "a").isalnum() and n == n.lower() and "-" not in n for n in names))
 for core in ("load_context", "get_memory", "save_memory", "get_skill", "daily_brief",

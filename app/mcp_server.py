@@ -210,6 +210,19 @@ def add_action(name: str, status: str = "Next", due: str | None = None) -> dict:
     return _run(lambda: notion_service.op_add_action(get_settings(), name=name, status=status, due=due))
 
 
+@mcp.tool(
+    name="whereami",
+    description=(
+        "Owen's current date, time, timezone and inferred location — call this if you are unsure "
+        "'when' or 'where' he is. Read-only. Timezone is his LIVE Google Calendar setting "
+        "(auto-detected, follows travel); location is inferred from that timezone, not GPS. If he "
+        "pinned a precise home/base via save_memory, prefer that."
+    ),
+)
+def whereami() -> dict:
+    return alistair_service.now_context(get_settings())
+
+
 # ===================== Notion (read + safe write) =====================
 @mcp.tool(
     name="notion_search",
@@ -283,6 +296,48 @@ def notion_create_pages(pages: list[dict], parent: dict | None = None) -> dict:
     )))
 
 
+@mcp.tool(
+    name="notion_move_pages",
+    description="Move one or more Notion pages/databases under a new parent (file them in PARA). "
+    "page_or_database_ids is a list of ids; new_parent is e.g. {\"page_id\": \"...\"} or "
+    "{\"database_id\": \"...\"}. Notion is sacred — confirm the destination with Owen first.",
+)
+def notion_move_pages(page_or_database_ids: list[str], new_parent: dict) -> dict:
+    from .routers.notion import MovePagesRequest, move_pages
+    return _run(lambda: move_pages(MovePagesRequest(
+        page_or_database_ids=page_or_database_ids, new_parent=new_parent)))
+
+
+@mcp.tool(
+    name="notion_duplicate_page",
+    description="Duplicate a Notion page (templating — e.g. spin up a new project from a template). "
+    "Non-destructive (creates a copy); shallow copy of top-level blocks. Returns the new page.",
+)
+def notion_duplicate_page(page_id: str) -> dict:
+    from .routers.notion import DuplicatePageRequest, duplicate_page
+    return _run(lambda: duplicate_page(DuplicatePageRequest(page_id=page_id)))
+
+
+@mcp.tool(
+    name="notion_get_comments",
+    description="Read the comments/discussion on a Notion page. Read-only. include_resolved=true also "
+    "returns resolved threads.",
+)
+def notion_get_comments(page_id: str, include_resolved: bool = False) -> dict:
+    from .routers.notion import GetCommentsRequest, get_comments
+    return _run(lambda: get_comments(GetCommentsRequest(page_id=page_id, include_resolved=include_resolved)))
+
+
+@mcp.tool(
+    name="notion_create_comment",
+    description="Add a comment to a Notion page (markdown). Use when Owen wants to leave a note or "
+    "question on a page without editing its content.",
+)
+def notion_create_comment(page_id: str, markdown: str) -> dict:
+    from .routers.notion import CreateCommentRequest, create_comment
+    return _run(lambda: create_comment(CreateCommentRequest(page_id=page_id, markdown=markdown)))
+
+
 # ===================== Calendar =====================
 @mcp.tool(
     name="calendar_today",
@@ -335,6 +390,51 @@ def calendar_suggest_time(attendeeEmails: list[str], startTime: str, endTime: st
         attendeeEmails=attendeeEmails, startTime=startTime, endTime=endTime,
         durationMinutes=durationMinutes, timeZone=timeZone,
     )))
+
+
+@mcp.tool(
+    name="calendar_get_event",
+    description="Get one calendar event by id (full details: time, attendees, location, description). Read-only.",
+)
+def calendar_get_event(eventId: str, calendarId: str | None = None) -> dict:
+    from .routers.calendar import GetEventRequest, get_event
+    return _run(lambda: get_event(GetEventRequest(eventId=eventId, calendarId=calendarId)))
+
+
+@mcp.tool(
+    name="calendar_update_event",
+    description="Edit an EXISTING calendar event (by eventId): change summary/startTime/endTime/location/"
+    "description, or set allDay. Only the fields you pass change. Confirm the change with Owen first.",
+)
+def calendar_update_event(eventId: str, summary: str | None = None, startTime: str | None = None,
+                          endTime: str | None = None, allDay: bool = False, timeZone: str | None = None,
+                          location: str | None = None, description: str | None = None,
+                          addGoogleMeetUrl: bool = False) -> dict:
+    from .routers.calendar import UpdateEventRequest, update_event
+    return _run(lambda: update_event(UpdateEventRequest(
+        eventId=eventId, summary=summary, startTime=startTime, endTime=endTime, allDay=allDay,
+        timeZone=timeZone, location=location, description=description, addGoogleMeetUrl=addGoogleMeetUrl)))
+
+
+@mcp.tool(
+    name="calendar_delete_event",
+    description="Delete a calendar event by id. SENSITIVE and hard to undo — confirm with Owen before "
+    "calling; never delete silently.",
+)
+def calendar_delete_event(eventId: str, calendarId: str | None = None) -> dict:
+    from .routers.calendar import DeleteEventRequest, delete_event
+    return _run(lambda: delete_event(DeleteEventRequest(eventId=eventId, calendarId=calendarId)))
+
+
+@mcp.tool(
+    name="calendar_respond_to_event",
+    description="RSVP to an event Owen was invited to: responseStatus = accepted | declined | tentative. "
+    "Optional responseComment. (Only works on events where Owen is an attendee, not ones he organizes.)",
+)
+def calendar_respond_to_event(eventId: str, responseStatus: str, responseComment: str | None = None) -> dict:
+    from .routers.calendar import RespondToEventRequest, respond_to_event
+    return _run(lambda: respond_to_event(RespondToEventRequest(
+        eventId=eventId, responseStatus=responseStatus, responseComment=responseComment)))
 
 
 # ===================== In-tray (the one capture surface) =====================

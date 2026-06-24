@@ -121,6 +121,12 @@ def _now_context(settings: Settings) -> dict:
     }
 
 
+def now_context(settings: Settings) -> dict:
+    """Public alias for the `now` block (current date/time + timezone + location hint),
+    exposed as the `whereami` MCP tool."""
+    return _now_context(settings)
+
+
 def load_context(settings: Settings) -> dict:
     """The session constitution: persona + now + routing + IDs + skills + live memory.
 
