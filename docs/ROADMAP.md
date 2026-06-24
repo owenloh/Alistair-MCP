@@ -24,19 +24,20 @@ The MCP is the last layer; everything below is the substrate it will expose as t
 | **Notion write** — markdown→blocks parity (containers, colors, spans, media, mentions) | ✅ **done, deployed & live-verified** | **124 golden checks**; 27-agent review fixed **16 bugs**; **live create→fetch round-trip = 38/39 byte-identical** (Notion accepted every block; 1 diff is Notion's own URL normalization) |
 | **Calendar / MS To-Do** domain ops | ✅ already in service | `app/services/*` |
 | **Token persistence** (Google / MS refresh) | ✅ resolved | Google=env, MS=gist |
-| **Memory** — SQLite event-log on a volume, rank→summarise | ✅ **built & tested** · ⚠️ attach a volume to persist | `app/services/memory.py` + `/api/memory/{save,get,list}`; **44 golden checks**; formula → `docs/MEMORY_FORMULA.md` |
-| **Coarse Alistair tools** — load_context, daily_brief, save_reference, add_action … | ✅ **4 built & tested** (52 checks) | `app/services/alistair.py` + `app/services/notion.py`; `POST /api/alistair/{load-context,daily-brief,save-reference,add-action}`. `get_skill`/`add_to_intray` already exist; `project_context` waits on GitHub #7. save_reference/add_action are insert/create-only; live write held for Owen's ok |
+| **Memory** — SQLite event-log on a volume, rank→summarise | ✅ **deployed & live-verified** · ⚠️ attach a volume to persist | `app/services/memory.py` + `/api/memory/{save,get,list}`; **44 golden checks**; live save→get→retract round-trip clean. Formula → `docs/MEMORY_FORMULA.md` |
+| **Coarse Alistair tools** — load_context, daily_brief, save_reference, add_action … | ✅ **4 deployed & live-verified** (52 checks) | `POST /api/alistair/{load-context,daily-brief,save-reference,add-action}`. Live: load_context returns the constitution; daily_brief composed 7 projects / 14 next actions / 1 cal event / 1 in-tray; **save_reference dry_run anchored correctly on the real tray** (no write). `get_skill`/`add_to_intray` already exist; `project_context` waits on GitHub #7 |
 | **GitHub** read + merge_pr + project_context | 📋 queued | needs `GITHUB_REPO_TOKEN` ⚠️ |
 | **MCP wrap** — Streamable-HTTP + OAuth, everything-as-tools | 📋 queued (#1) | spec saved |
 | **claude.ai rollout** config | 📋 queued ⚠️ | steps documented |
 
 **Notion-fidelity milestone (#3): ✅ DONE** — read shipped (34/35 live), write shipped &
 hardened (124 checks, 16 review bugs fixed, **live round-trip 38/39**).
-**Milestone #2 — essentially DONE on dev:** memory layer (44 checks) + 4 coarse tools —
-`load_context`, `daily_brief`, `save_reference`, `add_action` (52 checks) — **built & tested, 220
-checks total.** Pending: **Owen merges `claude/nice-fermi-yv3crt` → `main`** (direct push blocked,
-see ⚠️ below) to deploy; then **⚠️ attach a Railway volume** so memory persists; one live
-`save_reference`/`add_action` write to confirm against the real workspace (held for Owen's ok);
+**Milestone #2 — ✅ DONE, deployed & live-verified:** memory layer (44 checks) + 4 coarse tools —
+`load_context`, `daily_brief`, `save_reference`, `add_action` (52 checks) — **220 checks total**,
+shipped to prod via **PR #3** (merged through the GitHub API since the local relay blocks `main`
+pushes) and verified live. Remaining: **⚠️ attach a Railway volume** so memory persists
+(`memory_persistent` is currently false); one live `save_reference`/`add_action` **write** to
+confirm against the real workspace (held for Owen's ok — the dry_run already proved the anchor);
 `project_context` follows GitHub (#7).
 
 ---
@@ -80,14 +81,14 @@ Remaining known gaps: child-page-title bold (REST limit); tables/dates/files/syn
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| SQLite append-only event log + WAL/single-writer + the exact scoring/selection formula | ✅ **built & tested** (on dev) | `app/services/memory.py`; **44 golden checks** (fold, earliest-`created_at`, decay, core-pin, top_n, token-trim, dedup, retract, validation, reconnect-persistence). |
-| `save_memory` (only write path, assert/retract, dedup) / `get_memory` (ranked block) / `list_memory` (raw mirror) | ✅ **built & tested** (on dev) | `POST /api/memory/{save,get,list}`, persona-voiced descriptions for the MCP. |
-| `load_context` (persona + routing + ID registry + skill index + live memory) / `daily_brief` (compose the 3 read sources, graceful degrade) | ✅ **built & tested** (on dev) | `app/services/alistair.py` + `POST /api/alistair/{load-context,daily-brief}`; **28 checks**. Constitution sourced from the skills, not invented. |
+| SQLite append-only event log + WAL/single-writer + the exact scoring/selection formula | ✅ **deployed & live-verified** | `app/services/memory.py`; **44 golden checks**; live save→get→retract round-trip clean on prod. |
+| `save_memory` (only write path, assert/retract, dedup) / `get_memory` (ranked block) / `list_memory` (raw mirror) | ✅ **deployed & live-verified** | `POST /api/memory/{save,get,list}`, persona-voiced descriptions for the MCP. |
+| `load_context` (persona + routing + ID registry + skill index + live memory) / `daily_brief` (compose the 3 read sources, graceful degrade) | ✅ **deployed & live-verified** | `POST /api/alistair/{load-context,daily-brief}`; **28 checks**. Live: load_context returns the constitution; daily_brief composed 7 projects / 14 next actions / 1 cal event / 1 in-tray. |
 | `get_skill` / `add_to_intray` coarse tools | ✅ already exist | `GET /api/skill/{slug}` and `POST /api/intray` cover these. |
-| `save_reference` (References Tray append) / `add_action` (Actions row) | ✅ **built & tested** (on dev) · ⏸️ live write held | `POST /api/alistair/{save-reference,add-action}`; **24 checks**. Both **insert/create-only, never replace_content**. save_reference does read-first → find last entry above the END-OF-TRAY boundary → insert one spacer + entry → re-fetch + verify, and **aborts** if the structure is missing (supports `dry_run`). A LIVE write into Owen's real workspace is held until he oks it. |
+| `save_reference` (References Tray append) / `add_action` (Actions row) | ✅ **deployed** · live write held | `POST /api/alistair/{save-reference,add-action}`; **24 checks**. Both **insert/create-only, never replace_content**. save_reference: read-first → find last entry above the END-OF-TRAY boundary → insert one spacer + entry → re-fetch + verify; **aborts** if structure missing; `dry_run`. **Live dry_run anchored correctly on the real tray** (`reddit.com/r/ClaudeAI thread`); the actual write is held for Owen's ok. |
 | `project_context` coarse tool | 📋 queued | Waits on the GitHub read layer (#7). |
-| **Deploy `main`** (Railway redeploys from `main`) | ⚠️ **Owen merges** | Direct `git push origin main` returns HTTP 503 / sideband-disconnect (dev pushes + all reads work) — `main` is push-protected here, likely tied to the repo move to **owenloh/Alistair-MCP**. Owen merges `claude/nice-fermi-yv3crt` → `main`; everything (memory + 4 coarse tools, **220 checks**) deploys together then. |
-| Railway **volume** so the DB survives redeploys | ⚠️ **your action** | Code auto-uses `RAILWAY_VOLUME_MOUNT_PATH` when present (and reports `memory_persistent` at `/`). **Steps:** Railway → service → **Variables/Volumes → New Volume**, mount at e.g. `/data`; the app picks it up on the next deploy. Until then memory works but is **ephemeral** (lost on redeploy). |
+| **Deploy `main`** (Railway redeploys from `main`) | ✅ **deployed via PR #3** | Direct `git push origin main` is blocked here (HTTP 503 / sideband-disconnect — the local relay, not GitHub: `main` shows `protected:false`). Worked around by opening + merging **PR #3** through the GitHub API (Owen-authorized). Prod redeployed in ~60s; new build live (`memory_persistent` flag present). |
+| Railway **volume** so the DB survives redeploys | ⚠️ **your action** | Confirmed live: `/` reports `memory_persistent: false` (no volume yet). Code auto-uses `RAILWAY_VOLUME_MOUNT_PATH` when present. **Steps:** Railway → service → **Variables/Volumes → New Volume**, mount at e.g. `/data`. Until then memory works but is **ephemeral** (wiped each redeploy). |
 
 ## Token storage — RESOLVED
 
