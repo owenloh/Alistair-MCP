@@ -55,7 +55,8 @@ ROUTING = [
      "use": "Load get_skill('notion-master') FIRST and follow the safe-write protocol: notion_update_page "
             "command=update_content with content_updates=[{old_str, new_str}]; NEVER replace_content."},
     {"says": ["add a task/action to Notion (explicit)"],
-     "use": "add_action (creates ONE Next action). Capture-only 'remind me' goes to intray instead."},
+     "use": "add_action (creates ONE Next action); pass project=<project page id> to file it under the "
+            "right Project (and Area). Capture-only 'remind me' goes to intray instead."},
     {"says": ["calendar", "schedule", "am I free", "book a slot"],
      "use": "calendar_today / calendar_list_events / calendar_create_event / calendar_suggest_time. "
             "Times are in your current timezone (see now.timezone)."},
@@ -64,7 +65,9 @@ ROUTING = [
     {"says": ["what's happening with <project>", "open PRs", "project status"],
      "use": "project_context(owner, repo) — repo meta + commits + PRs + issues + README in one call."},
     {"says": ["remember this", "forget that", "what do you know about me"],
-     "use": "save_memory to write a durable fact (op='retract' to forget); get_memory to read (also in this context)."},
+     "use": "get_memory to read FIRST (it's also in this context), THEN save_memory to write a durable "
+            "fact (op='retract' to forget). Save the moment a durable fact surfaces, not at session end, "
+            "and read before writing to avoid duplicates. Full rules in memory_protocol."},
 ]
 
 SAFETY = [
@@ -77,6 +80,45 @@ SAFETY = [
     "Sensitive/irreversible actions need explicit confirmation: github_merge_pr returns a preview "
     "unless confirm=true; Gmail is draft-only and never sends.",
     "Don't fabricate. If a read fails or returns nothing, say so plainly instead of guessing.",
+]
+
+# How Owen's GTD x PARA system flows + where each thing lives (so the model knows the
+# lifecycle, not just the individual tools). Sourced from the in-tray + notion skills.
+WORKFLOW = {
+    "model": "GTD x PARA — two surfaces, one flow: capture fast, process deliberately, organise in Notion.",
+    "capture": "Transient quick-capture goes to the IN-TRAY (intray tool) — ONE Microsoft To Do list, "
+               "Owen's inbox ('remind me to', 'capture this', loose tasks). This is NOT a Notion write "
+               "and NOT memory.",
+    "process": "Triage an in-tray item into the committed system: turn it into a Notion Action "
+               "(add_action with project=<project id>, or notion_create_pages) linked to the right "
+               "Project, then clear it from the in-tray (intray done/delete). The daily brief only "
+               "PROPOSES this triage; it never auto-files.",
+    "organise": "PARA lives in Notion: Areas of Focus (Life/Career) -> Projects -> Actions (status "
+                "Next/Waiting/Someday/Done). Library = reference home; the References Tray "
+                "('Unorganised References') is the inbox for unfiled references. An Action links to its "
+                "Project via the 'Project' relation; a Project links to its Area.",
+    "boundary": "Keep the three stores distinct. IN-TRAY (Microsoft To Do) = transient inbox you process "
+                "to zero. NOTION = the durable organised system (projects, actions, references). MEMORY = "
+                "durable facts about Owen himself. A capture is not an action; an action is not a memory.",
+}
+
+# When + how to use Alistair's memory vs the host frontend's own memory. The host's
+# memory is not scratch to discard — it is a candidate source to reconcile IN.
+MEMORY_PROTOCOL = [
+    "Alistair's memory (save_memory / get_memory) is the ONE durable store that persists across every "
+    "frontend — claude.ai AND voice/Pipecat. Treat it as the shared source of truth for what you know "
+    "about Owen; the host's own built-in memory is local to a single surface and is not shared.",
+    "Read before you write. You already hold the memory block (load_context / get_memory) — check it "
+    "first and don't re-save something already there. The store dedups exact repeats (returns 'noop'), "
+    "but reading first also avoids near-duplicates like 'lives in London' vs 'based in London'.",
+    "Save incrementally, the MOMENT a durable fact/preference/open item surfaces — never batch it for the "
+    "end of the conversation. Each save_memory commits immediately, so if the chat ends abruptly only the "
+    "un-saved tail is lost (which is fine — you need not remember everything), never what you already saved.",
+    "Reconcile the host's memory IN. If the frontend independently 'remembers' something durable about "
+    "Owen that isn't here yet, fold it in with save_memory (set source so its origin is clear). Host "
+    "memory is a candidate source to merge, not a rival store to ignore.",
+    "Capture only durable, reusable facts (identity, preferences, standing commitments, open loops). Pick "
+    "relevance honestly; low-relevance entries decay out by design, so don't over-capture transient chatter.",
 ]
 
 
@@ -142,17 +184,22 @@ def load_context(settings: Settings) -> dict:
         "persona": PERSONA,
         "now": _now_context(settings),
         "routing": ROUTING,
+        "workflow": WORKFLOW,
         "id_registry": _id_registry(settings),
         "safety": SAFETY,
+        "memory_protocol": MEMORY_PROTOCOL,
         "skills": skill_index(),
         "memory": mem,
         "how_to": (
             "You are Alistair. Adopt the persona + voice above. Use `routing` to map what Owen "
-            "says to the right TOOL. Each skill's full procedure lives in this MCP — retrieve it with "
-            "get_skill('<slug>') before acting in its domain; the `skills` list says what each is for "
-            "and when it applies (always load notion-master before any Notion write). Honour every "
-            "safety rule. `now` is the current date/time + the timezone you are operating in. `memory` "
-            "is what you already know about Owen; save durable new facts with save_memory."
+            "says to the right TOOL, and `workflow` for how his GTD/PARA system flows (capture -> "
+            "process -> organise) and where each thing lives. Each skill's full procedure lives in "
+            "this MCP — retrieve it with get_skill('<slug>') before acting in its domain; the `skills` "
+            "list says what each is for and when it applies (always load notion-master before any "
+            "Notion write). Honour every safety rule. `now` is the current date/time + the timezone "
+            "you are operating in. `memory` is what you already know about Owen; follow "
+            "`memory_protocol` for when and how to save (read first, save incrementally, reconcile the "
+            "host's own memory in)."
         ),
     }
 
