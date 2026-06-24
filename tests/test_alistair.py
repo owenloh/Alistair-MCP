@@ -64,7 +64,7 @@ check("HTTP daily-brief 200 (degrades, not 500)", db.status_code == 200)
 check("HTTP daily-brief reports unavailable", len(db.json()["unavailable"]) == 3)
 mani = c.get("/api/manifest").json()
 check("manifest has alistair group", "alistair" in mani["function_apis"])
-check("manifest alistair has 2 tools", mani["counts"].get("alistair") == 2)
+check("manifest alistair has 4 tools", mani["counts"].get("alistair") == 4)
 check("load-context is first shortcut", mani["shortcuts"][0]["calls"][0] == "POST /api/alistair/load-context")
 
 # --- results ---

@@ -1481,6 +1481,138 @@ def op_update_page(settings: Settings, *, page_id: str, command: str,
         raise ServiceError(f"Unknown update-page command '{command}'.", status_code=400)
 
 
+# ---------------------------------------------------------------------------
+# Coarse Alistair write tools — Actions-row create + References-Tray append.
+# Both are INSERT/CREATE-ONLY (never replace_content) and the tray append
+# follows the sacred read-first -> insert -> re-fetch -> verify protocol.
+# ---------------------------------------------------------------------------
+REFERENCES_TRAY_PAGE_ID = "37e6f0cc-dd76-8086-a07d-f6704b0c25df"  # "Unorganised References"
+LIBRARY_HUB_PAGE_ID = "1fa6f0cc-dd76-809e-8bcb-e5db5ae28237"      # parent hub — NEVER append here
+
+
+def _block_plain(block: dict) -> str:
+    t = block.get("type")
+    data = block.get(t, {}) or {}
+    return rich_text_plain(data.get("rich_text"))
+
+
+def _is_end_of_tray(block: dict) -> bool:
+    return block.get("type") == "callout" and "END OF TRAY" in _block_plain(block).upper()
+
+
+def _is_tray_trailing(block: dict) -> bool:
+    """Blocks that form the tray's closing boundary (divider/images/empties)."""
+    t = block.get("type")
+    if t in ("divider", "image", "video", "embed", "file"):
+        return True
+    if t == "paragraph" and not _block_plain(block).strip():
+        return True
+    return False
+
+
+def op_add_action(settings: Settings, *, name: str, status: str = "Next",
+                  due: str | None = None, **_ignored) -> dict:
+    """Create ONE row in the Actions database (non-destructive create)."""
+    name = (name or "").strip()
+    if not name:
+        raise ServiceError("add_action requires a non-empty 'name'.", status_code=400)
+    if not settings.actions_db_id:
+        raise ServiceError("ACTIONS_DB_ID is not configured.", status_code=503)
+    status = (status or "Next").strip() or "Next"
+    props: dict = {"Name": name, "Action Status": status}
+    if due:
+        props["date:Due:start"] = due
+    res = op_create_pages(
+        settings,
+        pages=[{"properties": props}],
+        parent={"database_id": settings.actions_db_id},
+    )
+    created = (res.get("created") or [{}])[0]
+    return {"added_action": {"name": name, "status": status,
+                             "id": created.get("id"), "url": created.get("url")}}
+
+
+def op_save_reference(settings: Settings, *, title: str, body: str | None = None,
+                      link: str | None = None, dry_run: bool = False,
+                      _client=None, **_ignored) -> dict:
+    """Append an entry to the References Tray (insert-only, read-first + verified).
+
+    Read-first -> find the last real entry above the trailing END-OF-TRAY boundary
+    -> insert (NEVER replace) one <empty-block/> spacer + the entry -> re-fetch and
+    verify. Aborts rather than guessing if the END OF TRAY marker is missing.
+    """
+    title = (title or "").strip()
+    if not title:
+        raise ServiceError("save_reference requires a non-empty 'title'.", status_code=400)
+
+    lines = [f"#### {title}"]
+    if body and body.strip():
+        lines.append(body.strip())
+    if link and link.strip():
+        lines.append(link.strip())
+    entry_md = "\n".join(lines)
+    new_blocks = markdown_to_blocks("<empty-block/>\n" + entry_md)
+
+    if _client is not None:
+        return _save_reference_with(_client, title, entry_md, new_blocks, dry_run)
+    with NotionClient(settings) as c:
+        return _save_reference_with(c, title, entry_md, new_blocks, dry_run)
+
+
+def _save_reference_with(c, title: str, entry_md: str, new_blocks: list, dry_run: bool) -> dict:
+    blocks = c.block_children_all(REFERENCES_TRAY_PAGE_ID)
+    if not blocks:
+        raise ServiceError(
+            "References Tray came back empty; refusing to write blindly.", status_code=502
+        )
+    eot_idx = next((i for i, b in enumerate(blocks) if _is_end_of_tray(b)), None)
+    if eot_idx is None:
+        raise ServiceError(
+            "Could not find the 'END OF TRAY' marker on the References Tray; refusing to "
+            "write (wrong page or changed structure).",
+            status_code=409,
+        )
+    i = eot_idx - 1
+    while i >= 0 and _is_tray_trailing(blocks[i]):
+        i -= 1
+    if i < 0:
+        raise ServiceError(
+            "No content entry found above the tray boundary; refusing to guess placement.",
+            status_code=409,
+        )
+    anchor = blocks[i]
+    plan = {
+        "tray_page": REFERENCES_TRAY_PAGE_ID,
+        "anchor_id": anchor["id"],
+        "anchor_preview": _block_plain(anchor)[:80],
+        "entry_md": entry_md,
+        "new_block_count": len(new_blocks),
+    }
+    if dry_run:
+        return {"wrote": False, "dry_run": True, "plan": plan}
+
+    before = len(blocks)
+    c.append_children(REFERENCES_TRAY_PAGE_ID, new_blocks, after=anchor["id"])
+
+    # Re-fetch and verify only the intended change landed.
+    after_blocks = c.block_children_all(REFERENCES_TRAY_PAGE_ID)
+    grew_by = len(after_blocks) - before
+    entry_present = any(title in _block_plain(b) for b in after_blocks)
+    eot_after = next((j for j, b in enumerate(after_blocks) if _is_end_of_tray(b)), None)
+    tail_ok = eot_after is not None and all(
+        _is_tray_trailing(after_blocks[k]) for k in range(eot_after + 1, len(after_blocks))
+    )
+    verified = grew_by == len(new_blocks) and entry_present and tail_ok
+    return {
+        "wrote": True,
+        "verified": verified,
+        "plan": plan,
+        "grew_by": grew_by,
+        "warning": None if verified else
+        "Inserted, but post-write verification was not fully satisfied; eyeball the tray.",
+    }
+
+
 def _apply_content_update(c: NotionClient, pid: str, flat: list[dict], update: dict) -> dict:
     old = update.get("old_str", "")
     new = update.get("new_str", "")
