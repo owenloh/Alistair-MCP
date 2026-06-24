@@ -2002,17 +2002,11 @@ def build_brief(settings: Settings) -> dict:
         someday_p = [p for p in all_projects if (p["properties"].get("Status", {}).get("select") or {}).get("name") == "Someday"]
 
         next_raw = c.query_database_all(settings.actions_db_id, {
-            "and": [
-                {"property": "Action Status", "select": {"equals": "Next"}},
-                {"property": "Checkbox", "checkbox": {"equals": False}},
-            ]
+            "property": "Action Status", "select": {"equals": "Next"}
         })
         next_actions = [a for a in next_raw if qualifies(a)]
         someday_a = c.query_database_all(settings.actions_db_id, {
-            "and": [
-                {"property": "Action Status", "select": {"equals": "Someday"}},
-                {"property": "Checkbox", "checkbox": {"equals": False}},
-            ]
+            "property": "Action Status", "select": {"equals": "Someday"}
         })
 
     return {
