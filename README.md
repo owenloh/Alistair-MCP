@@ -1,9 +1,12 @@
 # Alistair Skills API
 
-An HTTP workaround that mirrors Claude's **Notion** and **Google Calendar**
-connectors, the **Microsoft To Do in-tray**, and the four **PARA skills** — so a
-**voice-mode Claude** (which can reach the internet over HTTP but cannot use
-connectors or skills) can reproduce the *same behaviour* it has on desktop.
+An HTTP + **remote MCP** service that mirrors Claude's **Notion**, **Google
+Calendar**, and **Gmail** connectors, the **Microsoft To Do in-tray**, and the
+**PARA skills** — so a **voice-mode / claude.ai Claude** (which can't use the
+desktop connectors/skills) can reproduce the *same behaviour*. The same tools ship
+as one remote MCP (`alistair_assistant`, Streamable-HTTP at `/mcp`) **and** as
+plain HTTP endpoints, and the skills are served *inside* the MCP via `get_skill`,
+so Alistair is self-contained — no separate skill uploads or other connectors needed.
 
 The trick: each connector tool is re-exposed as an HTTP endpoint whose
 description is copied (near-)verbatim from the real connector, backed by the
@@ -14,12 +17,14 @@ behaviour, without the connectors.
 
 | Layer | What it is | Endpoints |
 |-------|-----------|-----------|
-| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/intray` (1), `/api/github/*` (1) |
-| **Description APIs** | Skills that tell Claude *what to do* (no code) | `/api/skill/{notion-master \| daily-brief \| notion-references-tray \| microsoft-todo-intray}` |
+| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/intray` (1), `/api/github/*` (9), `/api/memory/*` (3), `/api/alistair/*` (5) |
+| **Description APIs** | Skills that tell Claude *what to do* (no code) | `/api/skill/{notion-master \| daily-brief \| notion-references-tray \| microsoft-todo-intray \| gmail}` (also via the MCP `get_skill` tool) |
 | **Manifest** | The catalogue of everything | `GET /api/manifest`, plus `/docs` and `/openapi.json` |
 
-So it is **~30 endpoints, not 7** — three "connectors" that each contain many
-tool-APIs, plus the four skill description-APIs, plus discovery.
+So it is **~50 endpoints** — five "connectors" (Notion, Calendar, Gmail, in-tray,
+GitHub) that each contain many tool-APIs, plus the persona/memory layer, the skill
+description-APIs, and discovery. The high-value subset is also exposed as **26 MCP
+tools** on `alistair_assistant`.
 
 ### Notion function APIs (`/api/notion/*`)
 `search`, `fetch`, `create-pages`, `update-page`, `move-pages`, `duplicate-page`,
@@ -35,6 +40,11 @@ tool-APIs, plus the four skill description-APIs, plus discovery.
 ### In-tray function API (`/api/intray`)
 `POST /api/intray` with `{"action": "list"|"add"|"delete"|"done", "title"?, "task_id"?}`
 (Microsoft To Do, single hard-scoped list, self-rolling token via a private gist).
+
+### Gmail function APIs (`/api/gmail/*`)
+`search`, `get-thread`, `list-drafts`, `create-draft`, `update-draft`, `delete-draft`
+— **read + draft only; it never sends.** Rides the same Google token as Calendar
+(needs the `gmail.readonly` + `gmail.compose` scopes; see `scripts/get_google_token.py`).
 
 ## Fidelity (honest notes)
 
@@ -68,7 +78,8 @@ All secrets come from env vars only (see `.env.example`). Nothing is hardcoded.
 | `PROJECTS_DB_ID`, `ACTIONS_DB_ID` | Notion | Default to the PARA DB ids; override if they change. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` | Calendar | **Recommended durable path** — if all three are set, the service mints a fresh access token on every call (never goes stale). |
 | `GOOGLE_CALENDAR_TOKEN` | Calendar | Optional fallback Bearer token; **not needed** if the trio above is set. |
-| `GOOGLE_CALENDAR_ID`, `TIMEZONE`, `TIMEZONE_AUTO` | Calendar | `primary`; `TIMEZONE` is the home/fallback zone (`Europe/London`; `CALENDAR_TIMEZONE` alias). With `TIMEZONE_AUTO=true` (default) the service auto-detects your **current** Google Calendar timezone each call so it follows you when travelling; a per-call `timeZone` arg always overrides. |
+| `GOOGLE_CALENDAR_ID`, `TIMEZONE`, `TIMEZONE_AUTO` | Calendar | `primary`; `TIMEZONE` is the home/fallback zone (`Europe/London`; `CALENDAR_TIMEZONE` alias). With `TIMEZONE_AUTO=true` (default) the service auto-detects your **current** Google Calendar timezone each call so it follows you when travelling (also surfaced in `load_context.now`); a per-call `timeZone` arg always overrides. |
+| Google scopes | Calendar + Gmail | Calendar read **+ write** needs `…/auth/calendar`; Gmail read + draft needs `gmail.readonly` + `gmail.compose`. Mint a token covering both with `scripts/get_google_token.py`, then set `GOOGLE_REFRESH_TOKEN`. |
 | `MS_CLIENT_ID`, `MS_TODO_LIST_ID`, `MS_TENANT` | In-tray | Azure public-client id; the in-tray list id; `consumers` for personal MS accounts. |
 | `GITHUB_GIST_TOKEN`, `GIST_ID`, `GIST_FILENAME` | In-tray + GitHub | Classic PAT (`gist` scope); private gist storing the MS refresh token. |
 | `SERVICE_API_KEY` | All `/api/*` | Optional. If set, every call must send `X-API-Key`. |
