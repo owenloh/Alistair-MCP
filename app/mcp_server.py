@@ -249,19 +249,24 @@ def notion_query_database(database_id: str, filter: dict | None = None,
 @mcp.tool(
     name="notion_update_page",
     description=(
-        "Edit a Notion page. DANGEROUS — Notion is sacred. Load the notion-master skill FIRST for the "
-        "safe-write protocol. INSERT/UPDATE/targeted-edit ONLY; NEVER overwrite a whole page. Use "
-        "after_block_id to insert at a precise point. allow_deleting_content must be explicitly true to "
-        "remove anything. Always read the page first and re-verify after."
+        "Edit a Notion page. DANGEROUS — Notion is sacred; load the notion-master skill FIRST and follow "
+        "its safe-write protocol (read the page + keep the before-state, edit, re-read to verify). Commands: "
+        "command='update_content' with content_updates=[{old_str, new_str}] is the SAFE targeted edit — "
+        "anchor old_str on unique existing text; to ADD, make new_str start with old_str plus the addition; "
+        "to DELETE a span, set new_str empty. command='insert_content' with content appends (after_block_id "
+        "places it). command='update_properties' with properties edits database fields. command='replace_content' "
+        "OVERWRITES THE WHOLE PAGE (new_str) — almost never what you want; needs allow_deleting_content=true. "
+        "Prefer update_content; never overwrite the whole page (replace_content) unless Owen explicitly says so this turn."
     ),
 )
 def notion_update_page(page_id: str, command: str, content: str | None = None,
-                       new_str: str | None = None, after_block_id: str | None = None,
-                       properties: dict | None = None, allow_deleting_content: bool = False) -> dict:
+                       content_updates: list[dict] | None = None, new_str: str | None = None,
+                       after_block_id: str | None = None, properties: dict | None = None,
+                       allow_deleting_content: bool = False) -> dict:
     from .routers.notion import UpdatePageRequest, update_page
     return _run(lambda: update_page(UpdatePageRequest(
-        page_id=page_id, command=command, content=content, new_str=new_str,
-        after_block_id=after_block_id, properties=properties,
+        page_id=page_id, command=command, content=content, content_updates=content_updates,
+        new_str=new_str, after_block_id=after_block_id, properties=properties,
         allow_deleting_content=allow_deleting_content,
     )))
 
