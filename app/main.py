@@ -17,16 +17,17 @@ from fastapi.responses import JSONResponse
 
 from . import __version__
 from .config import get_settings
-from .routers import calendar, github, intray, notion, skill
+from .routers import alistair, calendar, github, intray, memory, notion, skill
 from .services import ServiceError
 from .skills import skill_index
 
 # Top intents mapped to call sequences, so a voice-mode Claude can self-bootstrap
 # from /api/manifest with the smallest possible always-on prompt.
 SHORTCUTS = [
+    {"intent": "start of session / become Alistair (call first)",
+     "calls": ["POST /api/alistair/load-context"]},
     {"intent": "daily brief / morning brief / what's on today",
-     "calls": ["POST /api/notion/query", "POST /api/calendar/today",
-               "POST /api/intray {\"action\":\"list\"}"],
+     "calls": ["POST /api/alistair/daily-brief"],
      "then": "deliver per GET /api/skill/daily-brief"},
     {"intent": "add something to my in-tray",
      "calls": ["POST /api/intray {\"action\":\"add\",\"title\":\"<text>\"}"]},
@@ -43,6 +44,11 @@ SHORTCUTS = [
     {"intent": "calendar",
      "calls": ["POST /api/calendar/list-events", "POST /api/calendar/create-event",
                "POST /api/calendar/suggest-time"]},
+    {"intent": "load what you remember about me (start of session)",
+     "calls": ["POST /api/memory/get"]},
+    {"intent": "remember / forget a fact about me",
+     "calls": ["POST /api/memory/save {\"content\":\"<fact>\",\"type\":\"fact|preference|action|summary\",\"relevance\":1-5}",
+               "POST /api/memory/save {\"op\":\"retract\",\"type\":\"...\",\"content\":\"<same text>\"}"]},
 ]
 
 app = FastAPI(
@@ -68,6 +74,9 @@ app.include_router(notion.router)
 app.include_router(calendar.router)
 app.include_router(intray.router)
 app.include_router(github.router)
+app.include_router(memory.router)
+# Coarse persona layer (composes the connectors)
+app.include_router(alistair.router)
 # Skills (description APIs)
 app.include_router(skill.router)
 
@@ -102,6 +111,7 @@ def root() -> dict:
             "calendar": bool(s.google_calendar_token or s.google_refresh_token),
             "intray": bool(s.ms_client_id and s.ms_todo_list_id and s.github_token and s.gist_id),
             "github_push": bool(s.github_token),
+            "memory_persistent": s.memory_is_persistent,
             "api_key_required": bool(s.service_api_key),
         },
         "docs": "/docs",
@@ -126,11 +136,13 @@ def manifest() -> dict:
     """
     spec = app.openapi()
     groups: dict[str, list[dict]] = {
-        "notion": [], "calendar": [], "intray": [], "github": [], "skill": []
+        "notion": [], "calendar": [], "intray": [], "github": [], "memory": [],
+        "alistair": [], "skill": []
     }
     prefixes = {
         "/api/notion": "notion", "/api/calendar": "calendar", "/api/intray": "intray",
-        "/api/github": "github", "/api/skill": "skill",
+        "/api/github": "github", "/api/memory": "memory", "/api/alistair": "alistair",
+        "/api/skill": "skill",
     }
     for path, item in spec.get("paths", {}).items():
         key = next((g for pre, g in prefixes.items() if path.startswith(pre)), None)
@@ -147,7 +159,7 @@ def manifest() -> dict:
                 "description": op.get("description", ""),
             })
 
-    function_apis = {k: groups[k] for k in ("notion", "calendar", "intray", "github")}
+    function_apis = {k: groups[k] for k in ("notion", "calendar", "intray", "github", "memory", "alistair")}
     description_apis = {
         "list_endpoint": "GET /api/skill",
         "get_endpoint": "GET /api/skill/{slug}",

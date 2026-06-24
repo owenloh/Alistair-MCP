@@ -21,16 +21,23 @@ The MCP is the last layer; everything below is the substrate it will expose as t
 | Layer (what the MCP needs) | State | Where it lives |
 | --- | --- | --- |
 | **Notion read** — connector-exact markdown (tables, mentions, colors, files, synced) + pagination | ✅ **done & deployed** | live on Railway; 34/35 live diff, 18 golden |
-| **Notion write** — markdown→blocks parity (containers, colors, spans, media, mentions) | ✅ built + **hardened** | dev; **124 golden checks**; 27-agent adversarial review found & fixed **16 bugs** (Notion-400 risks + round-trip corruption); deploying to main |
+| **Notion write** — markdown→blocks parity (containers, colors, spans, media, mentions) | ✅ **done, deployed & live-verified** | **124 golden checks**; 27-agent review fixed **16 bugs**; **live create→fetch round-trip = 38/39 byte-identical** (Notion accepted every block; 1 diff is Notion's own URL normalization) |
 | **Calendar / MS To-Do** domain ops | ✅ already in service | `app/services/*` |
 | **Token persistence** (Google / MS refresh) | ✅ resolved | Google=env, MS=gist |
-| **Memory** — SQLite event-log on a volume, rank→summarise | 📋 queued (#2) | **formula specced** → `docs/MEMORY_FORMULA.md` |
-| **Coarse Alistair tools** — load_context, get_skill, daily_brief … | 📋 queued (#2) | designed |
+| **Memory** — SQLite event-log on a volume, rank→summarise | ✅ **built & tested** · ⚠️ attach a volume to persist | `app/services/memory.py` + `/api/memory/{save,get,list}`; **44 golden checks**; formula → `docs/MEMORY_FORMULA.md` |
+| **Coarse Alistair tools** — load_context, daily_brief, save_reference, add_action … | ✅ **4 built & tested** (52 checks) | `app/services/alistair.py` + `app/services/notion.py`; `POST /api/alistair/{load-context,daily-brief,save-reference,add-action}`. `get_skill`/`add_to_intray` already exist; `project_context` waits on GitHub #7. save_reference/add_action are insert/create-only; live write held for Owen's ok |
 | **GitHub** read + merge_pr + project_context | 📋 queued | needs `GITHUB_REPO_TOKEN` ⚠️ |
 | **MCP wrap** — Streamable-HTTP + OAuth, everything-as-tools | 📋 queued (#1) | spec saved |
 | **claude.ai rollout** config | 📋 queued ⚠️ | steps documented |
 
-**Rough completion of the Notion-fidelity milestone (#3): ~90%** — read shipped, write built & unit-green and awaiting its adversarial pass + live create-diff before it deploys.
+**Notion-fidelity milestone (#3): ✅ DONE** — read shipped (34/35 live), write shipped &
+hardened (124 checks, 16 review bugs fixed, **live round-trip 38/39**).
+**Milestone #2 — essentially DONE on dev:** memory layer (44 checks) + 4 coarse tools —
+`load_context`, `daily_brief`, `save_reference`, `add_action` (52 checks) — **built & tested, 220
+checks total.** Pending: **Owen merges `claude/nice-fermi-yv3crt` → `main`** (direct push blocked,
+see ⚠️ below) to deploy; then **⚠️ attach a Railway volume** so memory persists; one live
+`save_reference`/`add_action` write to confirm against the real workspace (held for Owen's ok);
+`project_context` follows GitHub (#7).
 
 ---
 
@@ -45,13 +52,16 @@ The MCP is the last layer; everything below is the substrate it will expose as t
 | Write parser `markdown_to_blocks` — recursive: `<details>` toggles, `<callout>`, `<columns>/<column>`, multi-line `<table>`, `<synced_block>`/reference, `$$` equation, `<table_of_contents/>`, media, image captions, `<page>`→`link_to_page`; tab-indent→child nesting; block colors + inline span color/underline; `<br>`; richer mentions (date+tz, user) | ✅ built · 🔨 verifying | Committed to dev `cce5db5`. 57 golden checks pass incl. an idempotent md→blocks→md round-trip. Fixed `#### → heading_4` and a `<mention-date>` timezone-`/` regex bug. Adversarial review running (REST-acceptance + edge cases) before it merges to main. |
 | **Pagination** of fetch (cursor + `has_more`) so long & deep pages come through **in full** | ✅ done | `op_fetch` returns `has_more`/`next_cursor`; caller pages until null. Deployed. |
 | Caps: depth 4 → 6; per-response block cap is now just a chunk-size safety | ✅ done | Pagination, not a bigger cap, is the real fix. Deployed. |
-| Acceptance diff: read hub 34/35 ✅; write md→blocks→md golden ✅; **live create-then-read diff** of a written page | 🔨 partial | The live write diff runs after the write parser deploys. |
+| Acceptance diff: read hub 34/35 ✅; write md→blocks→md golden ✅; **live create→fetch diff** of a written page ✅ (38/39) | ✅ done | A throwaway page with table/callout/columns/colors/bold-italic/equation created via the API round-tripped 38/39; Notion accepted all blocks. |
 
-**Parity verdict today (honest):** **read = done & deployed** (every connector block/inline
-*type* to the authoritative spec, incl. colors now; live page diffed 34/35, the 1 diff is a REST
-limitation). **Write = built, unit-green (57 checks), on dev** — recursive containers, colors,
-spans, media, mentions all parse and round-trip; pending its adversarial review + a live
-create-diff before deploying to main.
+**Parity verdict (honest):** **read = done & deployed** (every connector block/inline *type* to
+the authoritative spec, incl. colors; live page diffed 34/35, the 1 diff is a REST limitation).
+**Write = done, deployed & live-verified** — recursive containers, colors, spans, media, mentions
+parse and round-trip; 124 golden checks; a 27-agent adversarial review found & fixed 16 bugs
+(4 Notion-400 risks + round-trip corruption); a **live create→fetch on a real page round-tripped
+38/39 byte-identical**, Notion accepting every block (the 1 diff = Notion's own URL canonicalization).
+Remaining known gaps: child-page-title bold (REST limit); tables/dates/files/synced not yet
+*connector*-diffed (no workspace sample); the documented empty-callout+leading-paragraph edge.
 
 ## #2 — Memory + coarse tools
 
@@ -70,9 +80,14 @@ create-diff before deploying to main.
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| Railway **volume** + SQLite scaffolding | 📋 queued | Prereq for memory (and optional token consolidation). |
-| `save_memory` (only write path) / `get_memory` / summarise | 📋 queued | |
-| Coarse tools: `load_context`, `get_skill`, `daily_brief`, `add_to_intray`, `save_reference`, `add_action`, `project_context` | 📋 queued | persona/routing/IDs → `load_context`; procedures → `get_skill`; dangerous rules duplicated into tool descriptions. |
+| SQLite append-only event log + WAL/single-writer + the exact scoring/selection formula | ✅ **built & tested** (on dev) | `app/services/memory.py`; **44 golden checks** (fold, earliest-`created_at`, decay, core-pin, top_n, token-trim, dedup, retract, validation, reconnect-persistence). |
+| `save_memory` (only write path, assert/retract, dedup) / `get_memory` (ranked block) / `list_memory` (raw mirror) | ✅ **built & tested** (on dev) | `POST /api/memory/{save,get,list}`, persona-voiced descriptions for the MCP. |
+| `load_context` (persona + routing + ID registry + skill index + live memory) / `daily_brief` (compose the 3 read sources, graceful degrade) | ✅ **built & tested** (on dev) | `app/services/alistair.py` + `POST /api/alistair/{load-context,daily-brief}`; **28 checks**. Constitution sourced from the skills, not invented. |
+| `get_skill` / `add_to_intray` coarse tools | ✅ already exist | `GET /api/skill/{slug}` and `POST /api/intray` cover these. |
+| `save_reference` (References Tray append) / `add_action` (Actions row) | ✅ **built & tested** (on dev) · ⏸️ live write held | `POST /api/alistair/{save-reference,add-action}`; **24 checks**. Both **insert/create-only, never replace_content**. save_reference does read-first → find last entry above the END-OF-TRAY boundary → insert one spacer + entry → re-fetch + verify, and **aborts** if the structure is missing (supports `dry_run`). A LIVE write into Owen's real workspace is held until he oks it. |
+| `project_context` coarse tool | 📋 queued | Waits on the GitHub read layer (#7). |
+| **Deploy `main`** (Railway redeploys from `main`) | ⚠️ **Owen merges** | Direct `git push origin main` returns HTTP 503 / sideband-disconnect (dev pushes + all reads work) — `main` is push-protected here, likely tied to the repo move to **owenloh/Alistair-MCP**. Owen merges `claude/nice-fermi-yv3crt` → `main`; everything (memory + 4 coarse tools, **220 checks**) deploys together then. |
+| Railway **volume** so the DB survives redeploys | ⚠️ **your action** | Code auto-uses `RAILWAY_VOLUME_MOUNT_PATH` when present (and reports `memory_persistent` at `/`). **Steps:** Railway → service → **Variables/Volumes → New Volume**, mount at e.g. `/data`; the app picks it up on the next deploy. Until then memory works but is **ephemeral** (lost on redeploy). |
 
 ## Token storage — RESOLVED
 
