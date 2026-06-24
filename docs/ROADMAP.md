@@ -24,14 +24,16 @@ The MCP is the last layer; everything below is the substrate it will expose as t
 | **Notion write** — markdown→blocks parity (containers, colors, spans, media, mentions) | ✅ **done, deployed & live-verified** | **124 golden checks**; 27-agent review fixed **16 bugs**; **live create→fetch round-trip = 38/39 byte-identical** (Notion accepted every block; 1 diff is Notion's own URL normalization) |
 | **Calendar / MS To-Do** domain ops | ✅ already in service | `app/services/*` |
 | **Token persistence** (Google / MS refresh) | ✅ resolved | Google=env, MS=gist |
-| **Memory** — SQLite event-log on a volume, rank→summarise | 📋 queued (#2) | **formula specced** → `docs/MEMORY_FORMULA.md` |
-| **Coarse Alistair tools** — load_context, get_skill, daily_brief … | 📋 queued (#2) | designed |
+| **Memory** — SQLite event-log on a volume, rank→summarise | ✅ **built & tested** · ⚠️ attach a volume to persist | `app/services/memory.py` + `/api/memory/{save,get,list}`; **44 golden checks**; formula → `docs/MEMORY_FORMULA.md` |
+| **Coarse Alistair tools** — load_context, get_skill, daily_brief … | 🔨 active (#2) | next, composed on top of memory |
 | **GitHub** read + merge_pr + project_context | 📋 queued | needs `GITHUB_REPO_TOKEN` ⚠️ |
 | **MCP wrap** — Streamable-HTTP + OAuth, everything-as-tools | 📋 queued (#1) | spec saved |
 | **claude.ai rollout** config | 📋 queued ⚠️ | steps documented |
 
 **Notion-fidelity milestone (#3): ✅ DONE** — read shipped (34/35 live), write shipped &
-hardened (124 checks, 16 review bugs fixed, **live round-trip 38/39**). Next milestone: **#2 memory + coarse tools.**
+hardened (124 checks, 16 review bugs fixed, **live round-trip 38/39**).
+**Milestone #2 in progress:** memory layer ✅ built/tested/deployed (44 checks) — **⚠️ attach a
+Railway volume to make it persist across redeploys** (steps in §#2 below); coarse tools next.
 
 ---
 
@@ -74,9 +76,10 @@ Remaining known gaps: child-page-title bold (REST limit); tables/dates/files/syn
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| Railway **volume** + SQLite scaffolding | 📋 queued | Prereq for memory (and optional token consolidation). |
-| `save_memory` (only write path) / `get_memory` / summarise | 📋 queued | |
-| Coarse tools: `load_context`, `get_skill`, `daily_brief`, `add_to_intray`, `save_reference`, `add_action`, `project_context` | 📋 queued | persona/routing/IDs → `load_context`; procedures → `get_skill`; dangerous rules duplicated into tool descriptions. |
+| SQLite append-only event log + WAL/single-writer + the exact scoring/selection formula | ✅ **built, tested & deployed** | `app/services/memory.py`; **44 golden checks** (fold, earliest-`created_at`, decay, core-pin, top_n, token-trim, dedup, retract, validation, reconnect-persistence). |
+| `save_memory` (only write path, assert/retract, dedup) / `get_memory` (ranked block) / `list_memory` (raw mirror) | ✅ **built & deployed** | `POST /api/memory/{save,get,list}`, persona-voiced descriptions for the MCP. Live-verified. |
+| Railway **volume** so the DB survives redeploys | ⚠️ **your action** | Code auto-uses `RAILWAY_VOLUME_MOUNT_PATH` when present (and reports `memory_persistent` at `/`). **Steps:** Railway → service → **Variables/Volumes → New Volume**, mount at e.g. `/data`; the app picks it up on the next deploy. Until then memory works but is **ephemeral** (lost on redeploy). |
+| Coarse tools: `load_context`, `get_skill`, `daily_brief`, `add_to_intray`, `save_reference`, `add_action`, `project_context` | 🔨 **active** | persona/routing/IDs + memory block → `load_context`; procedures → `get_skill`; dangerous rules duplicated into tool descriptions. `project_context` waits on GitHub (#7). |
 
 ## Token storage — RESOLVED
 

@@ -7,6 +7,7 @@ endpoints still work) even when connector secrets are absent.
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from pydantic import AliasChoices, Field
@@ -55,9 +56,32 @@ class Settings(BaseSettings):
     gist_id: str | None = None
     gist_filename: str = "mstodo_refresh_token"
 
+    # ---- Memory (SQLite append-only event log) ----
+    # Railway sets RAILWAY_VOLUME_MOUNT_PATH automatically when a volume is
+    # attached; the DB lives there so it survives redeploys. With no volume the
+    # DB falls back to ./data (ephemeral — works, but lost on redeploy).
+    railway_volume_mount_path: str | None = None
+    memory_db_path: str | None = None  # explicit override for the SQLite file
+    memory_tau_days: float = 30.0      # decay constant (half-life ~= 21d)
+    memory_core_relevance: int = 5     # relevance >= this is pinned, never evicted
+    memory_top_n: int = 8              # cap on the decayed (non-core) tail
+    memory_max_tokens: int = 1200      # token budget for the rendered memory block
+
     @property
     def is_production(self) -> bool:
         return self.railway_env.strip().lower() == "production"
+
+    def memory_db_file(self) -> str:
+        """Resolve the SQLite path: explicit override > Railway volume > ./data."""
+        if self.memory_db_path:
+            return self.memory_db_path
+        base = self.railway_volume_mount_path or os.path.join(os.getcwd(), "data")
+        return os.path.join(base, "alistair_memory.db")
+
+    @property
+    def memory_is_persistent(self) -> bool:
+        """True only when a Railway volume backs the DB (survives redeploys)."""
+        return bool(self.railway_volume_mount_path)
 
 
 @lru_cache
