@@ -28,9 +28,12 @@ from ..config import Settings
 API = "https://api.notion.com/v1/"
 _TIMEOUT = httpx.Timeout(40.0)
 
-# Caps so a fetch of a huge page can't blow up the response.
-_MAX_CHILD_DEPTH = 2
-_MAX_TOTAL_BLOCKS = 300
+# Caps so a fetch of a huge page can't blow up the response. Raised from 300:
+# real pages (e.g. the References tray) exceed 300 blocks, and truncating cut off
+# trailing markers like the END OF TRAY callout. Deeper nesting covers toggles/
+# columns. Memory is moving to a structured store, so this only bounds page reads.
+_MAX_CHILD_DEPTH = 4
+_MAX_TOTAL_BLOCKS = 2000
 
 NEXT_PROJECT_STATUSES = {"Active", "Complete"}
 
@@ -358,17 +361,76 @@ def _heading(level: int, text: str) -> dict:
     return {"object": "block", "type": key, key: {"rich_text": _inline_to_rich(text)}}
 
 
+def rich_text_md(rich: list[dict] | None) -> str:
+    """Render a rich_text array to Notion-flavored inline markdown.
+
+    Mirrors the connector: **bold**, *italic*, `code`, [text](url) and inline
+    equations as $`expr`$. Falls back to plain_text for anything unrecognised.
+    """
+    if not rich:
+        return ""
+    out: list[str] = []
+    for t in rich:
+        if t.get("type") == "equation":
+            expr = (t.get("equation") or {}).get("expression") or t.get("plain_text", "")
+            out.append(f"$`{expr}`$")
+            continue
+        content = t.get("plain_text", "")
+        if content == "":
+            continue
+        ann = t.get("annotations") or {}
+        text_obj = t.get("text") if isinstance(t.get("text"), dict) else {}
+        link = (text_obj or {}).get("link")
+        href = link.get("url") if isinstance(link, dict) else None
+        if ann.get("code"):
+            content = f"`{content}`"
+        if ann.get("bold"):
+            content = f"**{content}**"
+        if ann.get("italic"):
+            content = f"*{content}*"
+        if href:
+            content = f"[{content}]({href})"
+        out.append(content)
+    return "".join(out)
+
+
+def _file_url(data: dict) -> str:
+    for k in ("external", "file"):
+        u = (data.get(k) or {}).get("url")
+        if u:
+            return u
+    return ""
+
+
+def _block_url(block: dict) -> str:
+    bid = (block.get("id") or "").replace("-", "")
+    return f"https://www.notion.so/{bid}" if bid else ""
+
+
+def _callout_open(data: dict) -> str:
+    attrs = ""
+    icon = data.get("icon") or {}
+    if icon.get("type") == "emoji" and icon.get("emoji"):
+        attrs += f' icon="{icon["emoji"]}"'
+    color = data.get("color")
+    if color and color != "default":
+        attrs += f' color="{color.replace("_background", "_bg")}"'
+    return f"<callout{attrs}>"
+
+
 def block_to_markdown(block: dict) -> str:
-    """Render a single block to a markdown-ish line (for fetch + anchor matching)."""
+    """Render a single (non-container) block to a connector-style markdown line.
+
+    Container blocks (toggle, callout, column_list, column) are handled in
+    render_blocks because they wrap their children; this covers leaf blocks.
+    """
     t = block.get("type", "")
     data = block.get(t, {})
-    text = rich_text_plain(data.get("rich_text")) if isinstance(data, dict) else ""
-    if t == "heading_1":
-        return f"# {text}"
-    if t == "heading_2":
-        return f"## {text}"
-    if t == "heading_3":
-        return f"### {text}"
+    if not isinstance(data, dict):
+        data = {}
+    text = rich_text_md(data.get("rich_text"))
+    if t in ("heading_1", "heading_2", "heading_3", "heading_4"):
+        return f"{'#' * int(t.split('_')[1])} {text}"
     if t == "bulleted_list_item":
         return f"- {text}"
     if t == "numbered_list_item":
@@ -378,43 +440,92 @@ def block_to_markdown(block: dict) -> str:
     if t == "quote":
         return f"> {text}"
     if t == "code":
-        return f"```\n{text}\n```"
+        lang = data.get("language") or "plain text"
+        return f"```{lang}\n{rich_text_plain(data.get('rich_text'))}\n```"
     if t == "divider":
         return "---"
-    if t == "child_page":
-        return f"[child page: {data.get('title', '')}]"
-    if t == "child_database":
-        return f"[child database: {data.get('title', '')}]"
+    if t == "equation":
+        return f"$$\n{data.get('expression', '')}\n$$"
+    if t == "image":
+        return f"![]({_file_url(data)})"
+    if t in ("child_page", "child_database"):
+        return f'<page url="{_block_url(block)}">{data.get("title", "")}</page>'
+    if t == "paragraph":
+        return text if text else "<empty-block/>"
     return text
 
 
+def _render_children(client: NotionClient, blk: dict, depth: int, counter: dict, flat: list[dict]) -> str:
+    sub_md, sub_flat = render_blocks(client, blk["id"], depth + 1, counter)
+    flat.extend(sub_flat)
+    return sub_md
+
+
 def render_blocks(client: NotionClient, block_id: str, depth: int, counter: dict) -> tuple[str, list[dict]]:
-    """Recursively render block children to (markdown, flat block list with ids)."""
+    """Recursively render block children to (markdown, flat block list with ids).
+
+    Mirrors the Notion connector's enhanced markdown: toggle -> <details>/
+    <summary>, callout -> <callout>, columns -> <columns>/<column>, with child
+    content tab-indented inside the wrapper. Leaf blocks go through
+    block_to_markdown. The flat list keeps every block's id/type/text so writes
+    can anchor precisely.
+    """
     md_parts: list[str] = []
     flat: list[dict] = []
     for blk in client.block_children_all(block_id):
         if counter["n"] >= _MAX_TOTAL_BLOCKS:
-            md_parts.append("\n_(truncated: page has more blocks)_")
+            md_parts.append("<!-- truncated: page has more blocks -->")
             break
         counter["n"] += 1
-        line = block_to_markdown(blk)
-        md_parts.append(line)
+        t = blk.get("type")
+        data = blk.get(t, {})
+        if not isinstance(data, dict):
+            data = {}
         flat.append({
             "id": blk["id"],
-            "type": blk.get("type"),
-            "text": rich_text_plain((blk.get(blk.get("type"), {}) or {}).get("rich_text")) if isinstance(blk.get(blk.get("type")), dict) else "",
+            "type": t,
+            "text": rich_text_plain(data.get("rich_text")),
             "has_children": blk.get("has_children", False),
         })
-        if blk.get("has_children") and depth < _MAX_CHILD_DEPTH and blk.get("type") not in ("child_page", "child_database"):
-            sub_md, sub_flat = render_blocks(client, blk["id"], depth + 1, counter)
-            if sub_md:
-                md_parts.append(_indent(sub_md))
-            flat.extend(sub_flat)
+        has_kids = bool(blk.get("has_children")) and depth < _MAX_CHILD_DEPTH
+
+        if t == "toggle":
+            md_parts.append("<details>")
+            md_parts.append(f"<summary>{rich_text_md(data.get('rich_text'))}</summary>")
+            if has_kids:
+                sub = _render_children(client, blk, depth, counter, flat)
+                if sub:
+                    md_parts.append(_indent(sub))
+            md_parts.append("</details>")
+        elif t == "callout":
+            md_parts.append(_callout_open(data))
+            body = rich_text_md(data.get("rich_text"))
+            if body:
+                md_parts.append(_indent(body))
+            if has_kids:
+                sub = _render_children(client, blk, depth, counter, flat)
+                if sub:
+                    md_parts.append(_indent(sub))
+            md_parts.append("</callout>")
+        elif t in ("column_list", "column"):
+            tag = "columns" if t == "column_list" else "column"
+            md_parts.append(f"<{tag}>")
+            if has_kids:
+                sub = _render_children(client, blk, depth, counter, flat)
+                if sub:
+                    md_parts.append(_indent(sub))
+            md_parts.append(f"</{tag}>")
+        else:
+            md_parts.append(block_to_markdown(blk))
+            if has_kids and t not in ("child_page", "child_database"):
+                sub = _render_children(client, blk, depth, counter, flat)
+                if sub:
+                    md_parts.append(_indent(sub))
     return "\n".join(md_parts), flat
 
 
 def _indent(text: str) -> str:
-    return "\n".join("    " + ln for ln in text.split("\n"))
+    return "\n".join("\t" + ln for ln in text.split("\n"))
 
 
 # ---------------------------------------------------------------------------
