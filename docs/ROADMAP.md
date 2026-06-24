@@ -21,10 +21,10 @@ The MCP is the last layer; everything below is the substrate it will expose as t
 | Layer (what the MCP needs) | State | Where it lives |
 | --- | --- | --- |
 | **Notion read** — connector-exact markdown (tables, mentions, colors, files, synced) + pagination | ✅ **done & deployed** | live on Railway; 34/35 live diff, 18 golden |
-| **Notion write** — markdown→blocks parity (containers, colors, spans, media, mentions) | ✅ built · 🔨 **verifying** | dev `cce5db5`; 57 golden pass; adversarial review in flight; **not yet on main** |
+| **Notion write** — markdown→blocks parity (containers, colors, spans, media, mentions) | ✅ built + **hardened** | dev; **124 golden checks**; 27-agent adversarial review found & fixed **16 bugs** (Notion-400 risks + round-trip corruption); deploying to main |
 | **Calendar / MS To-Do** domain ops | ✅ already in service | `app/services/*` |
 | **Token persistence** (Google / MS refresh) | ✅ resolved | Google=env, MS=gist |
-| **Memory** — SQLite event-log on a volume, rank→summarise | 📋 queued (#2) | designed, not built |
+| **Memory** — SQLite event-log on a volume, rank→summarise | 📋 queued (#2) | **formula specced** → `docs/MEMORY_FORMULA.md` |
 | **Coarse Alistair tools** — load_context, get_skill, daily_brief … | 📋 queued (#2) | designed |
 | **GitHub** read + merge_pr + project_context | 📋 queued | needs `GITHUB_REPO_TOKEN` ⚠️ |
 | **MCP wrap** — Streamable-HTTP + OAuth, everything-as-tools | 📋 queued (#1) | spec saved |

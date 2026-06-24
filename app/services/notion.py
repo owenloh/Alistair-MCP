@@ -246,7 +246,8 @@ def page_title(page: dict) -> str:
 # Markdown <-> blocks translation (pragmatic subset of Notion-flavored markdown)
 # ---------------------------------------------------------------------------
 _INLINE_RE = re.compile(
-    r"(\*\*(?P<bold>.+?)\*\*)"
+    r"(\*\*\*(?P<bolditalic>.+?)\*\*\*)"
+    r"|(\*\*(?P<bold>.+?)\*\*)"
     r"|(~~(?P<strike>.+?)~~)"
     r"|(?<!\*)\*(?P<italic>[^*]+?)\*(?!\*)"
     r"|(`(?P<code>[^`]+?)`)"
@@ -289,46 +290,60 @@ def _inline_to_rich(text: str) -> list[dict]:
         stash[key] = obj
         return key
 
-    # Resolve spans first (recursively), so their inner markdown is parsed and the
-    # color/underline annotation is folded into each resulting token.
+    # Stash equations, mentions and escaped chars FIRST so a span body (parsed
+    # below against this same stash) can restore them.
+    text = _MENTION_DATE_RE.sub(lambda m: _put(_date_mention_obj(m.group("dattrs"))), text)
+    text = _MENTION_RE.sub(lambda m: _put(_mention_obj(m.group("mkind"), m.group("murl"), m.group("mlabel") or "")), text)
+    text = _MATH_RE.sub(lambda m: _put({"type": "equation", "equation": {"expression": m.group("math")}}), text)
+    text = _ESC_RE.sub(lambda m: _put({"_literal": m.group(1)}), text)
+
+    # Resolve spans innermost-first, parsing each body against the SHARED stash so
+    # nested spans/placeholders restore (no NUL leak) and color/underline folds in.
     while True:
         sm = _SPAN_RE.search(text)
         if not sm:
             break
         attrs = dict(_ATTR_RE.findall(sm.group("attrs")))
-        tokens = _inline_to_rich(sm.group("body"))
+        tokens: list[dict] = []
+        _parse_inline(sm.group("body"), {}, tokens, stash)
         color = attrs.get("color")
         underline = attrs.get("underline") == "true"
         for tok in tokens:
             _apply_span(tok, color, underline)
         text = text[:sm.start()] + _put({"_tokens": tokens}) + text[sm.end():]
 
-    # Protect equations, mentions and escaped chars as opaque placeholders so the
-    # bold/italic/link pass below can't misinterpret their contents.
-    text = _MENTION_DATE_RE.sub(lambda m: _put(_date_mention_obj(m.group("dattrs"))), text)
-    text = _MENTION_RE.sub(lambda m: _put(_mention_obj(m.group("mkind"), m.group("murl"), m.group("mlabel") or "")), text)
-    text = _MATH_RE.sub(lambda m: _put({"type": "equation", "equation": {"expression": m.group("math")}}), text)
-    text = _ESC_RE.sub(lambda m: _put({"_literal": m.group(1)}), text)
-
     out: list[dict] = []
+    _parse_inline(text, {}, out, stash)
+    return out or [_text_obj("")]
+
+
+def _parse_inline(text: str, ann: dict, out: list[dict], stash: dict[str, dict]) -> None:
+    """Recursively tokenize bold/italic/strike/code/link, accumulating annotations.
+
+    Recursion lets stacked markers (***bold-italic***, ~~**x**~~) and formatting
+    inside [links](url) round-trip — each wrapper merges its annotation onto the
+    tokens its inner content produces, instead of flattening to literal text.
+    """
     pos = 0
     for m in _INLINE_RE.finditer(text):
         if m.start() > pos:
-            _emit_inline(out, text[pos:m.start()], stash)
-        if m.group("bold") is not None:
-            _emit_inline(out, m.group("bold"), stash, bold=True)
+            _emit_inline(out, text[pos:m.start()], stash, **ann)
+        if m.group("bolditalic") is not None:
+            _parse_inline(m.group("bolditalic"), {**ann, "bold": True, "italic": True}, out, stash)
+        elif m.group("bold") is not None:
+            _parse_inline(m.group("bold"), {**ann, "bold": True}, out, stash)
         elif m.group("strike") is not None:
-            _emit_inline(out, m.group("strike"), stash, strikethrough=True)
+            _parse_inline(m.group("strike"), {**ann, "strikethrough": True}, out, stash)
         elif m.group("italic") is not None:
-            _emit_inline(out, m.group("italic"), stash, italic=True)
+            _parse_inline(m.group("italic"), {**ann, "italic": True}, out, stash)
         elif m.group("code") is not None:
-            _emit_inline(out, m.group("code"), stash, code=True)
+            # Code content is literal — do not recurse into it.
+            _emit_inline(out, m.group("code"), stash, **{**ann, "code": True})
         elif m.group("ltext") is not None:
-            _emit_inline(out, m.group("ltext"), stash, link=m.group("lurl"))
+            _parse_inline(m.group("ltext"), {**ann, "link": m.group("lurl")}, out, stash)
         pos = m.end()
     if pos < len(text):
-        _emit_inline(out, text[pos:], stash)
-    return out or [_text_obj("")]
+        _emit_inline(out, text[pos:], stash, **ann)
 
 
 def _emit_inline(out: list[dict], seg: str, stash: dict[str, dict], **ann) -> None:
@@ -450,9 +465,10 @@ def _text_obj(content: str, bold=False, italic=False, code=False, strikethrough=
 
 
 # Block types that may carry indented child blocks (others ignore indentation).
+# Headings included so toggle-heading children round-trip (is_toggleable set below).
 _CHILD_OK = {
     "paragraph", "bulleted_list_item", "numbered_list_item", "to_do", "quote",
-    "callout", "toggle",
+    "callout", "toggle", "heading_1", "heading_2", "heading_3", "heading_4",
 }
 # Lines that begin a block (used to tell a callout's leading rich_text from a child block).
 _BLOCK_START_RE = re.compile(
@@ -460,7 +476,12 @@ _BLOCK_START_RE = re.compile(
     r"|<empty-block/>|<callout|<details|<columns|<column>|<table[ >]|<synced_block"
     r"|<page[ >]|<video |<audio |<file |<pdf |<table_of_contents|!\[)"
 )
-_BLOCK_COLOR_RE = re.compile(r'(?<!\\)\s*\{color="([^"]+)"\}\s*$')
+# Trailing {attr="v" ...} block attribute list (e.g. {color="red"} or
+# {toggle="true" color="blue"}). The (?<!\\) keeps escaped \{ literal braces out.
+_BLOCK_ATTR_RE = re.compile(r'(?<!\\)\s*\{([^{}]*)\}\s*$')
+# Lines whose first rendered char is a block marker (so paragraph/callout text that
+# begins this way must be lead-escaped, else it re-parses as a different block).
+_LEAD_MARKER_RE = re.compile(r"^(#{1,6} |- |\d+[.)] |---$|___$)")
 
 
 def markdown_to_blocks(md: str) -> list[dict]:
@@ -482,7 +503,9 @@ def _parse_blocks(lines: list[str]) -> list[dict]:
             i += 1
             continue
         block, i = _parse_one(lines, i)
-        if block is not None:
+        if isinstance(block, list):
+            blocks.extend(block)
+        elif block is not None:
             blocks.append(block)
     return blocks
 
@@ -542,7 +565,11 @@ def _parse_one(lines: list[str], i: int) -> tuple[dict | None, int]:
     if m:
         j = _find_close(lines, i, "</synced_block_reference>")
         rid = _id_from_url(m.group(1))
-        return (_blk("synced_block", {"synced_from": {"block_id": rid} if rid else None}), j + 1)
+        # Without a resolvable id this is not a real reference; drop it rather than
+        # emit synced_from:null (which would create an unintended NEW original).
+        if not rid:
+            return (None, j + 1)
+        return (_blk("synced_block", {"synced_from": {"block_id": rid}}), j + 1)
 
     # ---- leaf line (+ generic indented children) ----
     block = _leaf_block(stripped)
@@ -557,17 +584,25 @@ def _parse_one(lines: list[str], i: int) -> tuple[dict | None, int]:
         kids = _parse_blocks(_dedent_to_zero(child_lines))
         if kids:
             block[block["type"]]["children"] = kids
+            # Notion only allows children on a heading when it is toggleable.
+            if block["type"].startswith("heading_"):
+                block[block["type"]]["is_toggleable"] = True
     return (block, i)
 
 
 def _leaf_block(s: str) -> dict | None:
-    """Parse one non-container line into a block (color attr honored)."""
-    s, color = _strip_block_color(s)
+    """Parse one non-container line into a block (block attrs honored)."""
+    s, attrs = _strip_block_attrs(s)
+    color = _api_color(attrs.get("color"))
 
     def col(d: dict) -> dict:
         if color:
             d["color"] = color
         return d
+
+    # A leading block marker that was escaped on render is literal paragraph text.
+    if s[:1] == "\\" and _LEAD_MARKER_RE.match(s[1:]):
+        return _blk("paragraph", col({"rich_text": _inline_to_rich(s[1:])}))
 
     if s == "<empty-block/>":
         return _blk("paragraph", {"rich_text": []})
@@ -584,13 +619,16 @@ def _leaf_block(s: str) -> dict | None:
             img["caption"] = _inline_to_rich(m.group(1))
         return _blk("image", col(img))
 
-    m = re.match(r'^<(video|audio|file|pdf)\s+src="([^"]*)"[^>]*>(.*)</\1>$', s, re.DOTALL)
+    m = re.match(r'^<(video|audio|file|pdf)\s+src="([^"]*)"([^>]*)>(.*)</\1>$', s, re.DOTALL)
     if m:
-        kind, url, cap = m.group(1), m.group(2), m.group(3)
+        kind, url, rest, cap = m.group(1), m.group(2), m.group(3), m.group(4)
         data: dict = {"type": "external", "external": {"url": url}}
         if cap:
             data["caption"] = _inline_to_rich(cap)
-        return _blk(kind, col(data))
+        mattrs = dict(_ATTR_RE.findall(rest))
+        if mattrs.get("color") and mattrs["color"] != "default":
+            data["color"] = _api_color(mattrs["color"])
+        return _blk(kind, data)
 
     m = re.match(r'^<page\s+url="([^"]*)"[^>]*>(.*)</page>$', s, re.DOTALL)
     if m:
@@ -602,14 +640,15 @@ def _leaf_block(s: str) -> dict | None:
 
     if s in ("---", "***", "___"):
         return _blk("divider", {})
+    toggle = attrs.get("toggle") == "true"
     if s.startswith("#### "):
-        return _heading(4, s[5:], color)
+        return _heading(4, s[5:], color, toggle)
     if s.startswith("### "):
-        return _heading(3, s[4:], color)
+        return _heading(3, s[4:], color, toggle)
     if s.startswith("## "):
-        return _heading(2, s[3:], color)
+        return _heading(2, s[3:], color, toggle)
     if s.startswith("# "):
-        return _heading(1, s[2:], color)
+        return _heading(1, s[2:], color, toggle)
     if re.match(r"^[-*] \[[ xX]\] ", s):
         checked = s[3] in ("x", "X")
         return _blk("to_do", col({"rich_text": _inline_to_rich(s[6:]), "checked": checked}))
@@ -625,10 +664,14 @@ def _leaf_block(s: str) -> dict | None:
 def _parse_toggle(body: list[str], base: int, color: str | None) -> dict:
     rt: list[dict] = []
     child_lines: list[str] = []
+    seen_summary = False
     for ln in body:
         s = ln.strip()
-        if _indent_level(ln) == base and s.startswith("<summary>") and s.endswith("</summary>"):
+        # Only the FIRST base-indent <summary> is this toggle's title; any later
+        # <summary> belongs to a (possibly flat-nested) child toggle.
+        if not seen_summary and _indent_level(ln) == base and s.startswith("<summary>") and s.endswith("</summary>"):
             rt = _inline_to_rich(s[len("<summary>"):-len("</summary>")])
+            seen_summary = True
         else:
             child_lines.append(ln)
     d: dict = {"rich_text": rt}
@@ -641,6 +684,10 @@ def _parse_toggle(body: list[str], base: int, color: str | None) -> dict:
 
 
 def _parse_callout(body: list[str], attr_str: str) -> dict:
+    """Parse a <callout>. Heuristic: the first indented line, if it is plain inline
+    text (not a block marker), is the callout's rich_text; the rest are children.
+    A callout with empty rich_text whose first child is a plain paragraph is the one
+    ambiguous case — it round-trips as rich_text + remaining children."""
     attrs = dict(_ATTR_RE.findall(attr_str))
     body = _dedent_to_zero(body)
     rt: list[dict] = []
@@ -649,8 +696,9 @@ def _parse_callout(body: list[str], attr_str: str) -> dict:
         rt = _inline_to_rich(body[idx].strip())
         body = body[idx + 1:]
     d: dict = {"rich_text": rt}
-    if attrs.get("icon"):
-        d["icon"] = {"type": "emoji", "emoji": attrs["icon"]}
+    icon = _icon_obj(attrs.get("icon"))
+    if icon:
+        d["icon"] = icon
     if attrs.get("color") and attrs["color"] != "default":
         d["color"] = _api_color(attrs["color"])
     kids = _parse_blocks(body)
@@ -659,7 +707,22 @@ def _parse_callout(body: list[str], attr_str: str) -> dict:
     return _blk("callout", d)
 
 
-def _parse_columns(body: list[str]) -> dict:
+def _icon_obj(s: str | None) -> dict | None:
+    """Map an icon string to a Notion icon object, or None when unmappable.
+
+    http(s) URL -> external icon; a single emoji char -> emoji icon; a bare word
+    (e.g. a Notion built-in icon NAME) can't be expressed via REST, so omit it
+    rather than send an invalid emoji (which Notion 400s)."""
+    if not s:
+        return None
+    if s.startswith("http"):
+        return {"type": "external", "external": {"url": s}}
+    if not re.fullmatch(r"[\w-]+", s):  # emoji chars aren't \w, named icons are
+        return {"type": "emoji", "emoji": s}
+    return None
+
+
+def _parse_columns(body: list[str]) -> dict | list[dict] | None:
     body = _dedent_to_zero(body)
     columns: list[dict] = []
     k = 0
@@ -671,6 +734,13 @@ def _parse_columns(body: list[str]) -> dict:
             k = cj + 1
         else:
             k += 1
+    # Notion rejects a column_list with <2 columns; degrade to the inner blocks
+    # rather than POSTing an invalid payload (HTTP 400).
+    if len(columns) < 2:
+        flat: list[dict] = []
+        for c in columns:
+            flat.extend(c["column"]["children"])
+        return flat or None
     return _blk("column_list", {"children": columns})
 
 
@@ -684,7 +754,9 @@ def _parse_table(body: list[str], attr_str: str) -> dict | None:
             cells: list[list[dict]] = []
             k += 1
             while k < len(body) and body[k].strip() != "</tr>":
-                cm = re.match(r'^<td(?:\s+color="[^"]*")?>(.*)</td>$', body[k].strip(), re.DOTALL)
+                # Tolerate an unclosed <td> (the closing tag is optional) so a single
+                # malformed cell doesn't zero out table_width and drop the whole table.
+                cm = re.match(r'^<td(?:\s+color="[^"]*")?>(.*?)(?:</td>)?$', body[k].strip(), re.DOTALL)
                 if cm:
                     cells.append(_inline_to_rich(cm.group(1)) if cm.group(1) else [])
                 k += 1
@@ -710,11 +782,13 @@ def _blk(t: str, data: dict) -> dict:
     return {"object": "block", "type": t, t: data}
 
 
-def _heading(level: int, text: str, color: str | None = None) -> dict:
+def _heading(level: int, text: str, color: str | None = None, toggle: bool = False) -> dict:
     key = f"heading_{level}"
     data: dict = {"rich_text": _inline_to_rich(text)}
     if color:
         data["color"] = color
+    if toggle:
+        data["is_toggleable"] = True
     return {"object": "block", "type": key, key: data}
 
 
@@ -743,20 +817,45 @@ def _dedent_to_zero(lines: list[str]) -> list[str]:
 
 
 def _find_close(lines: list[str], open_idx: int, close_tag: str) -> int:
-    """Index of the matching close tag (same indent level), or end-of-list."""
-    lvl = _indent_level(lines[open_idx])
+    """Index of the matching close tag, accounting for nested same-tag containers.
+
+    Depth-aware (so `<details>` inside `<details>` matches the right `</details>`)
+    and indentation-agnostic (a close tag indented differently still matches). The
+    open tag name is derived from close_tag (`</details>` -> `details`); only an
+    EXACT tag-name open (`<details` followed by space or `>`) increments depth, so
+    `<synced_block_reference>` does not count as a `<synced_block>` open.
+    """
+    name = close_tag[2:-1]
+    open_re = re.compile(rf"^<{re.escape(name)}(?=[\s>])")
+    depth = 1
     for j in range(open_idx + 1, len(lines)):
-        if lines[j].strip() == close_tag and _indent_level(lines[j]) == lvl:
-            return j
+        s = lines[j].strip()
+        if s == close_tag:
+            depth -= 1
+            if depth == 0:
+                return j
+        elif open_re.match(s):
+            depth += 1
     return len(lines)
 
 
-def _strip_block_color(s: str) -> tuple[str, str | None]:
-    """Pull a trailing {color="X"} block attribute off a line; return (text, api_color)."""
-    m = _BLOCK_COLOR_RE.search(s)
+def _strip_block_attrs(s: str) -> tuple[str, dict]:
+    """Pull a trailing {attr="v" ...} list off a line; return (text, attrs).
+
+    Only strips when the braces actually contain attr="value" pairs, so plain
+    prose ending in {something} is left intact."""
+    m = _BLOCK_ATTR_RE.search(s)
     if m:
-        return s[:m.start()].rstrip(), _api_color(m.group(1))
-    return s, None
+        attrs = dict(_ATTR_RE.findall(m.group(1)))
+        if attrs:
+            return s[:m.start()].rstrip(), attrs
+    return s, {}
+
+
+def _lead_escape(text: str) -> str:
+    """Backslash-escape a leading block marker so paragraph/callout text starting
+    with '#', '- ', 'N. ', '---', '___' round-trips as text, not a new block."""
+    return "\\" + text if _LEAD_MARKER_RE.match(text) else text
 
 
 def _api_color(c: str | None) -> str | None:
@@ -856,6 +955,8 @@ def _mention_md(token: dict) -> str:
         attrs = f' start="{d["start"]}"' if d.get("start") else ""
         if d.get("end"):
             attrs += f' end="{d["end"]}"'
+        if d.get("time_zone"):
+            attrs += f' timeZone="{d["time_zone"]}"'
         return f"<mention-date{attrs}/>"
     return label
 
@@ -889,6 +990,17 @@ def _color_suffix(data: dict) -> str:
     return f' {{color="{_md_color(c)}"}}' if c and c != "default" else ""
 
 
+def _heading_suffix(data: dict) -> str:
+    """Combined ` {toggle="true" color="X"}` attribute list for a heading line."""
+    attrs = []
+    if data.get("is_toggleable"):
+        attrs.append('toggle="true"')
+    c = data.get("color")
+    if c and c != "default":
+        attrs.append(f'color="{_md_color(c)}"')
+    return f' {{{" ".join(attrs)}}}' if attrs else ""
+
+
 def block_to_markdown(block: dict) -> str:
     """Render a single (non-container) block to a connector-style markdown line.
 
@@ -902,7 +1014,7 @@ def block_to_markdown(block: dict) -> str:
     text = rich_text_md(data.get("rich_text"))
     cs = _color_suffix(data)
     if t in ("heading_1", "heading_2", "heading_3", "heading_4"):
-        return f"{'#' * int(t.split('_')[1])} {text}{cs}"
+        return f"{'#' * int(t.split('_')[1])} {text}{_heading_suffix(data)}"
     if t == "bulleted_list_item":
         return f"- {text}{cs}"
     if t == "numbered_list_item":
@@ -928,8 +1040,11 @@ def block_to_markdown(block: dict) -> str:
         label = rich_text_plain(data.get("caption")) or url
         return f"[{label}]({url})" if url else ""
     if t == "link_to_page":
-        ref = data.get("page_id") or data.get("database_id")
-        return f'<page url="{_notion_url(ref)}"></page>'
+        # A database target must not round-trip as <page> (write would mis-type it
+        # as page_id -> HTTP 400); emit a non-destructive database mention instead.
+        if data.get("database_id"):
+            return f'<mention-database url="{_notion_url(data["database_id"])}"></mention-database>'
+        return f'<page url="{_notion_url(data.get("page_id"))}"></page>'
     if t == "child_page":
         return f'<page url="{_block_url(block)}">{data.get("title", "")}</page>'
     if t == "child_database":
@@ -939,9 +1054,9 @@ def block_to_markdown(block: dict) -> str:
     if t == "breadcrumb":
         return ""
     if t == "paragraph":
-        return f"{text}{cs}" if text else "<empty-block/>"
+        return f"{_lead_escape(text)}{cs}" if text else "<empty-block/>"
     if text:
-        return f"{text}{cs}"
+        return f"{_lead_escape(text)}{cs}"
     return "<unknown/>"
 
 
@@ -984,7 +1099,7 @@ def _render_one(client: NotionClient, blk: dict, depth: int, counter: dict,
         md_parts.append("</details>")
     elif t == "callout":
         md_parts.append(_callout_open(data))
-        body = rich_text_md(data.get("rich_text"))
+        body = _lead_escape(rich_text_md(data.get("rich_text")))
         if body:
             md_parts.append(_indent(body))
         if has_kids:
