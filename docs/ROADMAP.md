@@ -18,15 +18,19 @@ Legend: ✅ done · 🔨 active · 📋 queued · 🚫 won't / can't · ⚠️ y
 
 | Item | Status | How we proceed |
 | --- | --- | --- |
-| Read renderer: headings (incl. h4), toggle, callout, columns, `<empty-block/>`, image, lists, quote, code, divider, inline bold/italic/code/link/math | ✅ done | committed `2b0c76b`. ≈85% structural parity. |
-| Read renderer → **100%**: **tables** `<table>`, **databases / data-sources**, **mentions** (`<mention-page>`, `<mention-user>`, date), synced / `<unknown>` blocks, exact special-char escaping (`\$ \| \< \> \[ \] \* \\`) | 🔨 active | You flagged tables + databases + mentions as must-be-100%. This is the next change. |
+| Read renderer: headings (incl. h4), toggle, callout, columns, `<empty-block/>`, image, lists, quote, code, divider, inline bold/italic/code/link/math | ✅ done | committed `2b0c76b`. |
+| Read renderer → **100%**: **tables** (multi-line `<table>/<tr>/<td>`), **databases** (`<database inline>`/`<mention-database>`), **mentions** (page/database/user + `<mention-date>`), files (`<video/audio/file/pdf>`), `<table_of_contents/>`, `<synced_block>`, `<unknown/>`, exact escape set `\ * ~ \` $ [ ] < > { } \| ^` | ✅ done | Aligned to the authoritative `notion://docs/enhanced-markdown-spec`. Live diff on the Library hub = **34/35 lines byte-identical**; 18 golden checks pass. Deployed. |
+| **Remaining read gaps** (documented): block/inline **colors** `{color=..}`/`<span color=>` + underline (deferred to land *with* the write parser so they round-trip); bold **child-page title** (`**Lie Theory**` — REST `child_page.title` is a plain string, needs N+1 fetch); tables/dates/files/synced are spec-exact + unit-tested but not yet live-diffed (no workspace page has one) | 🔨 tracked | colors fold into #2's parser task; the rest are minor/REST-limited |
 | Write parser `markdown_to_blocks`: `#### → heading_4` (confirmed creatable), `<empty-block/>`, `<details>/<summary>` toggles + children, `<callout>` + children, `![](url)`, inline math, tables, mentions; tab-indent → child nesting | 🔨 active | The symmetric write side. Today it has the `#### → heading_3` bug and drops rich blocks. |
 | **Pagination** of fetch (cursor/offset + `has_more`) so long & deep pages come through **in full** — never truncated, never an oversized single response | 🔨 active | You confirmed: "must add pagination such that all is fetched properly." This — not a bigger block cap — is the real fix for long pages. |
 | Caps: depth 4 → 6; the per-response block cap survives only as a chunk-size safety | 🔨 active | The connector's own fetch of your tray overflowed at **85K chars** — proof a single dump has a hard ceiling, so pagination beats a bigger number. Folded into the pagination work. |
 | Acceptance: connector-vs-Railway-API **diff** on real pages (tray, coffee, references, one deep/long page) | 📋 queued | After the above deploys. |
 
-**Parity verdict today (honest):** read ≈85% (→100% with tables/mentions/db/escaping);
-**write not yet** (parser rewrite is active). Full read+write parity is **not reached yet**.
+**Parity verdict today (honest):** **read ≈98%** — every connector block/inline *type* is
+implemented to the authoritative spec and a live page diffed 34/35 (the 1 diff is a REST
+limitation). Remaining: block/inline colors (deferred to land with the write parser). **Write:
+inline done** (escapes, math, mentions, `#### → heading_4`, `<empty-block/>`, image); **recursive
+containers not yet** (toggle/callout/table/columns) — task #2.
 
 ## #2 — Memory + coarse tools
 
