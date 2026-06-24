@@ -21,6 +21,7 @@ from .config import get_settings
 from .services import ServiceError
 from .services import alistair as alistair_service
 from .services import calendar as calendar_service
+from .services import gmail as gmail_service
 from .services import memory as memory_service
 from .services import notion as notion_service
 from .skills import list_slugs, load_skill
@@ -406,6 +407,57 @@ def github_merge_pr(owner: str, repo: str, number: int, confirm: bool = False, m
         with GitHubClient(_gh_token()) as gh:
             return merge_pr_guarded(gh, owner, repo, number, confirm=confirm, method=method)
     return _run(go)
+
+
+# ===================== Gmail (read + draft) =====================
+@mcp.tool(
+    name="gmail_search",
+    description=(
+        "Search Owen's Gmail with Gmail query syntax (e.g. 'from:bank newer_than:7d', "
+        "'is:unread label:work', 'subject:invoice has:attachment'). Read-only. Returns "
+        "message stubs (from, subject, snippet, date, thread_id); follow up with "
+        "gmail_read_thread to read one. Keep max_results small."
+    ),
+)
+def gmail_search(query: str, max_results: int = 20) -> dict:
+    return _run(lambda: gmail_service.search(get_settings(), query=query, max_results=max_results))
+
+
+@mcp.tool(
+    name="gmail_read_thread",
+    description=(
+        "Read one Gmail thread by thread_id — every message rendered to clean text "
+        "(headers + body). Read-only. Summarise it for Owen; don't dump the raw text, and "
+        "don't repeat secrets/2FA codes you see."
+    ),
+)
+def gmail_read_thread(thread_id: str) -> dict:
+    return _run(lambda: gmail_service.get_thread(get_settings(), thread_id=thread_id))
+
+
+@mcp.tool(
+    name="gmail_list_drafts",
+    description="List Owen's existing Gmail drafts (draft_id, to, subject, snippet). Read-only.",
+)
+def gmail_list_drafts(max_results: int = 20) -> dict:
+    return _run(lambda: gmail_service.list_drafts(get_settings(), max_results=max_results))
+
+
+@mcp.tool(
+    name="gmail_create_draft",
+    description=(
+        "Draft an email for Owen — creates a DRAFT only, it NEVER sends. Provide to, subject, "
+        "body (optional cc). For a reply, pass thread_id and in_reply_to (the original "
+        "message's Message-ID) so it threads. Write in Owen's voice, keep it tight, then show "
+        "him the draft — sending stays his action in Gmail."
+    ),
+)
+def gmail_create_draft(to: str, subject: str, body: str, cc: str | None = None,
+                       thread_id: str | None = None, in_reply_to: str | None = None) -> dict:
+    return _run(lambda: gmail_service.create_draft(
+        get_settings(), to=to, subject=subject, body=body, cc=cc,
+        thread_id=thread_id, in_reply_to=in_reply_to,
+    ))
 
 
 # ---- the mounted ASGI app + auth ----
