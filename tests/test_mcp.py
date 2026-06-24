@@ -149,6 +149,31 @@ check("guarded: wrong token -> 401", sent[0]["status"] == 401 and called["v"] is
 
 os.environ.pop("SERVICE_API_KEY", None); _cfg.get_settings.cache_clear()
 
+
+# === HTTP through the _MCPDispatcher: /mcp served at the exact path, no redirect ===
+os.environ["SERVICE_API_KEY"] = "httpkey"; _cfg.get_settings.cache_clear()
+from fastapi.testclient import TestClient
+from app.main import asgi
+INIT = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                   "clientInfo": {"name": "t", "version": "1"}}}
+MH = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+with TestClient(asgi) as cl:
+    # bare /mcp must NOT 307/404 — it serves directly
+    r = cl.post("/mcp", json=INIT, headers={**MH, "Authorization": "Bearer httpkey"}, follow_redirects=False)
+    check("/mcp (no slash) serves directly 200", r.status_code == 200)
+    check("/mcp returns alistair_assistant", r.json().get("result", {}).get("serverInfo", {}).get("name") == "alistair_assistant")
+    rslash = cl.post("/mcp/", json=INIT, headers={**MH, "Authorization": "Bearer httpkey"}, follow_redirects=False)
+    check("/mcp/ also serves 200", rslash.status_code == 200)
+    rno = cl.post("/mcp", json=INIT, headers=MH, follow_redirects=False)
+    check("/mcp no auth -> 401 (not 307/404)", rno.status_code == 401)
+    rwrong = cl.post("/mcp", json=INIT, headers={**MH, "Authorization": "Bearer nope"}, follow_redirects=False)
+    check("/mcp wrong key -> 401", rwrong.status_code == 401)
+    # REST still flows through the dispatcher to FastAPI
+    check("dispatcher passes /health to FastAPI", cl.get("/health").status_code == 200)
+    check("dispatcher passes /api/manifest to FastAPI", cl.get("/api/manifest").json()["counts"]["total"] == 47)
+os.environ.pop("SERVICE_API_KEY", None); _cfg.get_settings.cache_clear()
+
 # --- results ---
 print("=== RESULTS ===")
 ok = True
