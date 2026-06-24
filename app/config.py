@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # (e.g. a custom domain). OAuth is enabled only when one of these resolves.
     public_base_url: str | None = None
     railway_public_domain: str | None = None
+    # Password shown on the OAuth approval page so only the operator can authorize a
+    # claude.ai connection (closes the public-URL + auto-approve hole). Falls back to
+    # SERVICE_API_KEY if unset; if neither is set the gate fails closed (denies all).
+    oauth_approval_password: str | None = None
 
     # ---- Notion ----
     notion_token: str | None = None
@@ -88,6 +92,12 @@ class Settings(BaseSettings):
         if self.railway_public_domain:
             return f"https://{self.railway_public_domain.strip().rstrip('/')}"
         return None
+
+    @property
+    def oauth_approval_secret(self) -> str | None:
+        """Secret the operator types on the OAuth approval page. Dedicated password
+        if set, else the service key, else None (gate denies all approvals)."""
+        return self.oauth_approval_password or self.service_api_key
 
     @property
     def github_read_token(self) -> str | None:

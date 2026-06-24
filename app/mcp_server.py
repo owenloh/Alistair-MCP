@@ -42,6 +42,7 @@ BASE_URL = get_settings().resolved_base_url
 OAUTH_ENABLED = bool(BASE_URL)
 
 _auth_kwargs: dict = {}
+oauth_provider = None  # set below when OAuth is enabled; imported by main for the consent routes
 if OAUTH_ENABLED:
     from mcp.server.auth.settings import (
         AuthSettings,
@@ -51,7 +52,11 @@ if OAUTH_ENABLED:
 
     from .mcp_oauth import SCOPES, SingleUserOAuthProvider
 
-    oauth_provider = SingleUserOAuthProvider(lambda: get_settings().service_api_key)
+    oauth_provider = SingleUserOAuthProvider(
+        service_key_getter=lambda: get_settings().service_api_key,
+        approval_secret_getter=lambda: get_settings().oauth_approval_secret,
+        base_url=BASE_URL,
+    )
     _auth_kwargs = dict(
         auth_server_provider=oauth_provider,
         auth=AuthSettings(

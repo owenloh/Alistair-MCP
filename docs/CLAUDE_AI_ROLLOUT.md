@@ -9,9 +9,9 @@ Reference: `docs/ALISTAIR_MCP_BUILD_SPEC.md` §4–6.
 
 ## 0. The endpoint
 
-- **MCP URL:** `https://<your-railway-host>/mcp` (e.g. `https://web-production-2144c.up.railway.app/mcp`)
+- **MCP URL:** `https://<your-railway-host>/mcp` (find the host in the Railway dashboard, or on the service's `/` page)
 - **Server name:** `alistair_assistant` · **Transport:** Streamable-HTTP
-- **Auth:** claude.ai → **OAuth** (auto-discovered). Every other client → **Bearer** `SERVICE_API_KEY`.
+- **Auth:** claude.ai → **OAuth** (auto-discovered) **gated by an approval password** — only you can approve a connection. Every other client → **Bearer** `SERVICE_API_KEY`.
 
 Check it's healthy: open `/` — the `mcp` block shows `"oauth_enabled": true`. If it
 says `false`, set `PUBLIC_BASE_URL` (below) and redeploy.
@@ -21,15 +21,18 @@ says `false`, set `PUBLIC_BASE_URL` (below) and redeploy.
 | Variable | Why | Required |
 | --- | --- | --- |
 | `SERVICE_API_KEY` | Bearer token for non-claude.ai clients; also accepted by the MCP. **Rotate the one shared in chat.** | yes |
-| `PUBLIC_BASE_URL` | OAuth issuer, e.g. `https://web-production-2144c.up.railway.app`. Only needed if `RAILWAY_PUBLIC_DOMAIN` isn't auto-set (the `/` page tells you). | usually auto |
+| `OAUTH_APPROVAL_PASSWORD` | Password you type on the approval page when connecting claude.ai — this is what stops anyone else connecting. Falls back to `SERVICE_API_KEY` if unset; set a memorable-but-strong value. | strongly recommended |
+| `PUBLIC_BASE_URL` | OAuth issuer, e.g. `https://<your-railway-host>`. Only needed if `RAILWAY_PUBLIC_DOMAIN` isn't auto-set (the `/` page tells you). | usually auto |
 | Railway **Volume** mounted (any path) | Persists memory across redeploys. Without it memory is wiped each deploy (`/` shows `memory_persistent:false`). | recommended |
 | `GITHUB_REPO_TOKEN` | Fine-grained PAT (repo read + PR) so `project_context`/`github_*` work. Falls back to the gist token, which lacks repo scope. | for GitHub tools |
 
 ## 2. claude.ai (web/desktop)
 
 1. **Settings → Connectors → Add custom connector.** Paste the **MCP URL**. claude.ai
-   runs the OAuth dance automatically — our server auto-registers the client (DCR),
-   auto-approves (you are the only user), and issues a token. No client id/secret to paste.
+   runs the OAuth dance automatically (registers itself via DCR). A small **"Approve
+   Alistair connection" page** appears in your browser — enter your `OAUTH_APPROVAL_PASSWORD`
+   and it issues the token. No client id/secret to paste. (Anyone without that password
+   can't connect, even though the URL is public.)
 2. **Do NOT enable** the official **Notion / Todoist** connectors. All Notion/tasks flow
    through Alistair. (You can't replace the official one in place — just leave it off.)
 3. **Upload ONE "Alistair" Skill** (Settings → Capabilities → Skills). In its YAML set
@@ -58,15 +61,19 @@ always-on and can't.)
 
 The end-to-end **claude.ai OAuth connect** needs to be done from your claude.ai account
 (Anthropic's cloud can't be reached from this build env). Everything underneath is
-verified: discovery metadata, dynamic client registration, the authorization-code + PKCE
-exchange, refresh, and that a minted token authorizes `/mcp` (22 in-process checks), plus
-the live Bearer handshake against Railway. If claude.ai reports an auth error, check
-`/` shows `oauth_enabled:true` and that the connector URL ends in `/mcp`.
+verified: discovery metadata, dynamic client registration, the approval gate, the
+authorization-code + PKCE exchange, refresh, and that a minted token authorizes `/mcp`
+(23 in-process checks + the full flow live on Railway). If claude.ai reports an auth
+error, check `/` shows `oauth_enabled:true` and that the connector URL ends in `/mcp`.
 
 ## 6. Security notes
 
-- **Rotate** `SERVICE_API_KEY` and any Notion/GitHub tokens shared in plaintext.
-- Auto-approve OAuth means anyone who knows the URL *and* completes the flow could connect.
-  Mitigations: keep the URL private; the bearer key still gates non-OAuth access. If you
-  later want a login gate or multi-user, move to per-identity tokens (a future step).
+- The **approval-password gate** on `/authorize` is what makes the public URL safe: OAuth
+  no longer auto-approves, so knowing the URL is not enough — a connection is only issued
+  after someone enters `OAUTH_APPROVAL_PASSWORD` on the consent page (the password is
+  checked in constant time; the gate fails closed if no secret is configured).
+- **Rotate** `SERVICE_API_KEY` and any Notion/GitHub/Microsoft tokens shared in plaintext.
+- The non-OAuth path (Bearer `SERVICE_API_KEY`) still gates Claude Desktop/Code, Cursor,
+  the voice shell and Gemini CLI.
+- Defense in depth: you can also keep the repo private and/or regenerate the Railway domain.
 - All secrets live in **Railway Variables**, never in chat.

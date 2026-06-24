@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 
 from . import __version__
 from .config import get_settings
-from .mcp_server import OAUTH_ENABLED, OAUTH_PATHS, mcp, mcp_asgi
+from .mcp_server import OAUTH_ENABLED, OAUTH_PATHS, mcp, mcp_asgi, oauth_provider
 from .routers import alistair, calendar, github, intray, memory, notion, skill
 from .services import ServiceError
 from .skills import skill_index
@@ -218,6 +218,77 @@ def manifest() -> dict:
         "description_apis": description_apis,
         "counts": counts,
     }
+
+
+# ---- OAuth approval gate (operator login shown on /authorize) ----
+# Registered only when OAuth is on. /oauth/consent falls through the dispatcher to
+# FastAPI (it is neither /mcp* nor an SDK OAuth route), so these handlers serve it.
+# provider.authorize() redirects the browser here instead of auto-approving; the
+# code is minted only after the operator enters the approval password.
+if OAUTH_ENABLED:
+    import html as _html
+
+    from fastapi import Form
+    from starlette.responses import HTMLResponse, RedirectResponse
+
+    _CONSENT_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Approve Alistair connection</title><style>
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0f1115;color:#e7e9ee;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:20px}
+.card{background:#161922;border:1px solid #272d3a;border-radius:16px;padding:30px;max-width:390px;width:100%;box-shadow:0 12px 50px rgba(0,0,0,.45)}
+h1{font-size:19px;margin:0 0 6px}p{color:#9aa4b4;font-size:13.5px;line-height:1.55;margin:0 0 22px}
+.who{color:#7aa2ff;font-weight:600}
+input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #2d3340;background:#0f1115;color:#e7e9ee;font-size:14px;outline:none}
+input:focus{border-color:#5b8cff}
+button{width:100%;margin-top:14px;padding:12px;border:0;border-radius:10px;background:#5b8cff;color:#fff;font-size:14px;font-weight:600;cursor:pointer}
+button:hover{background:#4a7df0}.err{color:#ff7a7a;font-size:13px;margin:12px 0 0}
+.foot{color:#5b6472;font-size:11.5px;margin:18px 0 0;text-align:center}
+</style></head><body><div class="card">
+<h1>Approve Alistair connection</h1>
+<p><span class="who">%%CLIENT%%</span> wants to connect to your Alistair assistant &mdash; this grants access to your Notion, calendar, tasks and memory. Enter your approval password to allow it.</p>
+<form method="post" action="/oauth/consent">
+<input type="hidden" name="txn" value="%%TXN%%">
+<input type="password" name="password" placeholder="Approval password" autofocus autocomplete="current-password">
+%%ERROR%%
+<button type="submit">Approve</button></form>
+<p class="foot">If you didn&rsquo;t start this from claude.ai, close this page.</p>
+</div></body></html>"""
+
+    _EXPIRED_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Link expired</title>
+<style>body{font-family:system-ui,sans-serif;background:#0f1115;color:#e7e9ee;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:20px;text-align:center}
+.card{max-width:380px}h1{font-size:18px}p{color:#9aa4b4;font-size:14px;line-height:1.5}</style></head>
+<body><div class="card"><h1>This approval link has expired</h1>
+<p>Go back to claude.ai and try connecting the Alistair connector again.</p></div></body></html>"""
+
+    def _render_consent(txn: str, client_id: str, error: str = "") -> HTMLResponse:
+        err = f'<p class="err">{_html.escape(error)}</p>' if error else ""
+        page = (
+            _CONSENT_PAGE.replace("%%TXN%%", _html.escape(txn))
+            .replace("%%CLIENT%%", _html.escape(client_id or "A client"))
+            .replace("%%ERROR%%", err)
+        )
+        return HTMLResponse(page)
+
+    @app.get("/oauth/consent", include_in_schema=False)
+    async def oauth_consent_form(txn: str = ""):
+        client_id = oauth_provider.pending_client(txn)
+        if not client_id:
+            return HTMLResponse(_EXPIRED_PAGE, status_code=400)
+        return _render_consent(txn, client_id)
+
+    @app.post("/oauth/consent", include_in_schema=False)
+    async def oauth_consent_submit(txn: str = Form(""), password: str = Form("")):
+        client_id = oauth_provider.pending_client(txn)
+        if not client_id:
+            return HTMLResponse(_EXPIRED_PAGE, status_code=400)
+        if not oauth_provider.verify_approval(password):
+            return _render_consent(txn, client_id, error="Incorrect password — try again.")
+        target = oauth_provider.complete_authorization(txn)
+        if not target:
+            return HTMLResponse(_EXPIRED_PAGE, status_code=400)
+        return RedirectResponse(target, status_code=302)
 
 
 class _MCPDispatcher:
