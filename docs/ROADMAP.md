@@ -21,7 +21,7 @@ The MCP is the last layer; everything below is the substrate it will expose as t
 | Layer (what the MCP needs) | State | Where it lives |
 | --- | --- | --- |
 | **Notion read** — connector-exact markdown (tables, mentions, colors, files, synced) + pagination | ✅ **done & deployed** | live on Railway; 34/35 live diff, 18 golden |
-| **Notion write** — markdown→blocks parity (containers, colors, spans, media, mentions) | ✅ built + **hardened** | dev; **124 golden checks**; 27-agent adversarial review found & fixed **16 bugs** (Notion-400 risks + round-trip corruption); deploying to main |
+| **Notion write** — markdown→blocks parity (containers, colors, spans, media, mentions) | ✅ **done, deployed & live-verified** | **124 golden checks**; 27-agent review fixed **16 bugs**; **live create→fetch round-trip = 38/39 byte-identical** (Notion accepted every block; 1 diff is Notion's own URL normalization) |
 | **Calendar / MS To-Do** domain ops | ✅ already in service | `app/services/*` |
 | **Token persistence** (Google / MS refresh) | ✅ resolved | Google=env, MS=gist |
 | **Memory** — SQLite event-log on a volume, rank→summarise | 📋 queued (#2) | **formula specced** → `docs/MEMORY_FORMULA.md` |
@@ -30,7 +30,8 @@ The MCP is the last layer; everything below is the substrate it will expose as t
 | **MCP wrap** — Streamable-HTTP + OAuth, everything-as-tools | 📋 queued (#1) | spec saved |
 | **claude.ai rollout** config | 📋 queued ⚠️ | steps documented |
 
-**Rough completion of the Notion-fidelity milestone (#3): ~90%** — read shipped, write built & unit-green and awaiting its adversarial pass + live create-diff before it deploys.
+**Notion-fidelity milestone (#3): ✅ DONE** — read shipped (34/35 live), write shipped &
+hardened (124 checks, 16 review bugs fixed, **live round-trip 38/39**). Next milestone: **#2 memory + coarse tools.**
 
 ---
 
@@ -45,13 +46,16 @@ The MCP is the last layer; everything below is the substrate it will expose as t
 | Write parser `markdown_to_blocks` — recursive: `<details>` toggles, `<callout>`, `<columns>/<column>`, multi-line `<table>`, `<synced_block>`/reference, `$$` equation, `<table_of_contents/>`, media, image captions, `<page>`→`link_to_page`; tab-indent→child nesting; block colors + inline span color/underline; `<br>`; richer mentions (date+tz, user) | ✅ built · 🔨 verifying | Committed to dev `cce5db5`. 57 golden checks pass incl. an idempotent md→blocks→md round-trip. Fixed `#### → heading_4` and a `<mention-date>` timezone-`/` regex bug. Adversarial review running (REST-acceptance + edge cases) before it merges to main. |
 | **Pagination** of fetch (cursor + `has_more`) so long & deep pages come through **in full** | ✅ done | `op_fetch` returns `has_more`/`next_cursor`; caller pages until null. Deployed. |
 | Caps: depth 4 → 6; per-response block cap is now just a chunk-size safety | ✅ done | Pagination, not a bigger cap, is the real fix. Deployed. |
-| Acceptance diff: read hub 34/35 ✅; write md→blocks→md golden ✅; **live create-then-read diff** of a written page | 🔨 partial | The live write diff runs after the write parser deploys. |
+| Acceptance diff: read hub 34/35 ✅; write md→blocks→md golden ✅; **live create→fetch diff** of a written page ✅ (38/39) | ✅ done | A throwaway page with table/callout/columns/colors/bold-italic/equation created via the API round-tripped 38/39; Notion accepted all blocks. |
 
-**Parity verdict today (honest):** **read = done & deployed** (every connector block/inline
-*type* to the authoritative spec, incl. colors now; live page diffed 34/35, the 1 diff is a REST
-limitation). **Write = built, unit-green (57 checks), on dev** — recursive containers, colors,
-spans, media, mentions all parse and round-trip; pending its adversarial review + a live
-create-diff before deploying to main.
+**Parity verdict (honest):** **read = done & deployed** (every connector block/inline *type* to
+the authoritative spec, incl. colors; live page diffed 34/35, the 1 diff is a REST limitation).
+**Write = done, deployed & live-verified** — recursive containers, colors, spans, media, mentions
+parse and round-trip; 124 golden checks; a 27-agent adversarial review found & fixed 16 bugs
+(4 Notion-400 risks + round-trip corruption); a **live create→fetch on a real page round-tripped
+38/39 byte-identical**, Notion accepting every block (the 1 diff = Notion's own URL canonicalization).
+Remaining known gaps: child-page-title bold (REST limit); tables/dates/files/synced not yet
+*connector*-diffed (no workspace sample); the documented empty-callout+leading-paragraph edge.
 
 ## #2 — Memory + coarse tools
 
