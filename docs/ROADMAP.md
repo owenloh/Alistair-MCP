@@ -25,15 +25,18 @@ The MCP is the last layer; everything below is the substrate it will expose as t
 | **Calendar / MS To-Do** domain ops | ✅ already in service | `app/services/*` |
 | **Token persistence** (Google / MS refresh) | ✅ resolved | Google=env, MS=gist |
 | **Memory** — SQLite event-log on a volume, rank→summarise | ✅ **built & tested** · ⚠️ attach a volume to persist | `app/services/memory.py` + `/api/memory/{save,get,list}`; **44 golden checks**; formula → `docs/MEMORY_FORMULA.md` |
-| **Coarse Alistair tools** — load_context, get_skill, daily_brief … | 🔨 active (#2) | next, composed on top of memory |
+| **Coarse Alistair tools** — load_context, get_skill, daily_brief … | ✅ read-only ones built · ⏸️ Notion-write ones deferred | `load_context` + `daily_brief` (`app/services/alistair.py`, **28 checks**); `get_skill`/`add_to_intray` already exist; `save_reference`/`add_action`/`project_context` deferred (sacred-Notion safe-write wrapper + GitHub #7) |
 | **GitHub** read + merge_pr + project_context | 📋 queued | needs `GITHUB_REPO_TOKEN` ⚠️ |
 | **MCP wrap** — Streamable-HTTP + OAuth, everything-as-tools | 📋 queued (#1) | spec saved |
 | **claude.ai rollout** config | 📋 queued ⚠️ | steps documented |
 
 **Notion-fidelity milestone (#3): ✅ DONE** — read shipped (34/35 live), write shipped &
 hardened (124 checks, 16 review bugs fixed, **live round-trip 38/39**).
-**Milestone #2 in progress:** memory layer ✅ built/tested/deployed (44 checks) — **⚠️ attach a
-Railway volume to make it persist across redeploys** (steps in §#2 below); coarse tools next.
+**Milestone #2 in progress:** memory layer ✅ built + tested (44 checks) and `load_context` +
+`daily_brief` coarse tools ✅ built + tested (28 checks) — **on dev, not yet deployed** (direct
+push to `main` is currently blocked, see ⚠️ below). Then **⚠️ attach a Railway volume** so memory
+persists across redeploys (steps in §#2). Remaining coarse tools (`save_reference`, `add_action`,
+`project_context`) deferred behind the sacred-Notion safe-write wrapper + GitHub (#7).
 
 ---
 
@@ -76,10 +79,13 @@ Remaining known gaps: child-page-title bold (REST limit); tables/dates/files/syn
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| SQLite append-only event log + WAL/single-writer + the exact scoring/selection formula | ✅ **built, tested & deployed** | `app/services/memory.py`; **44 golden checks** (fold, earliest-`created_at`, decay, core-pin, top_n, token-trim, dedup, retract, validation, reconnect-persistence). |
-| `save_memory` (only write path, assert/retract, dedup) / `get_memory` (ranked block) / `list_memory` (raw mirror) | ✅ **built & deployed** | `POST /api/memory/{save,get,list}`, persona-voiced descriptions for the MCP. Live-verified. |
+| SQLite append-only event log + WAL/single-writer + the exact scoring/selection formula | ✅ **built & tested** (on dev) | `app/services/memory.py`; **44 golden checks** (fold, earliest-`created_at`, decay, core-pin, top_n, token-trim, dedup, retract, validation, reconnect-persistence). |
+| `save_memory` (only write path, assert/retract, dedup) / `get_memory` (ranked block) / `list_memory` (raw mirror) | ✅ **built & tested** (on dev) | `POST /api/memory/{save,get,list}`, persona-voiced descriptions for the MCP. |
+| `load_context` (persona + routing + ID registry + skill index + live memory) / `daily_brief` (compose the 3 read sources, graceful degrade) | ✅ **built & tested** (on dev) | `app/services/alistair.py` + `POST /api/alistair/{load-context,daily-brief}`; **28 checks**. Constitution sourced from the skills, not invented. |
+| `get_skill` / `add_to_intray` coarse tools | ✅ already exist | `GET /api/skill/{slug}` and `POST /api/intray` cover these. |
+| `save_reference` / `add_action` (Notion writes) | ⏸️ **deferred** | Both write into **sacred Notion** (the References Tray / Actions DB) and must wrap the full read-first → anchor-insert → re-fetch → verify protocol; the daily-brief governance is propose-only. Build deliberately, not as a thin append. |
+| **Deploy `main`** (Railway redeploys from `main`) | ⚠️ **blocked** | Direct `git push origin main` currently returns HTTP 503 / sideband-disconnect (dev pushes + all reads work), i.e. `main` is push-protected in this environment. Memory + coarse tools are safe on dev `claude/nice-fermi-yv3crt`; they reach production once `main` is updated (merge mechanism TBD with Owen). |
 | Railway **volume** so the DB survives redeploys | ⚠️ **your action** | Code auto-uses `RAILWAY_VOLUME_MOUNT_PATH` when present (and reports `memory_persistent` at `/`). **Steps:** Railway → service → **Variables/Volumes → New Volume**, mount at e.g. `/data`; the app picks it up on the next deploy. Until then memory works but is **ephemeral** (lost on redeploy). |
-| Coarse tools: `load_context`, `get_skill`, `daily_brief`, `add_to_intray`, `save_reference`, `add_action`, `project_context` | 🔨 **active** | persona/routing/IDs + memory block → `load_context`; procedures → `get_skill`; dangerous rules duplicated into tool descriptions. `project_context` waits on GitHub (#7). |
 
 ## Token storage — RESOLVED
 

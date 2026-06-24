@@ -17,16 +17,17 @@ from fastapi.responses import JSONResponse
 
 from . import __version__
 from .config import get_settings
-from .routers import calendar, github, intray, memory, notion, skill
+from .routers import alistair, calendar, github, intray, memory, notion, skill
 from .services import ServiceError
 from .skills import skill_index
 
 # Top intents mapped to call sequences, so a voice-mode Claude can self-bootstrap
 # from /api/manifest with the smallest possible always-on prompt.
 SHORTCUTS = [
+    {"intent": "start of session / become Alistair (call first)",
+     "calls": ["POST /api/alistair/load-context"]},
     {"intent": "daily brief / morning brief / what's on today",
-     "calls": ["POST /api/notion/query", "POST /api/calendar/today",
-               "POST /api/intray {\"action\":\"list\"}"],
+     "calls": ["POST /api/alistair/daily-brief"],
      "then": "deliver per GET /api/skill/daily-brief"},
     {"intent": "add something to my in-tray",
      "calls": ["POST /api/intray {\"action\":\"add\",\"title\":\"<text>\"}"]},
@@ -74,6 +75,8 @@ app.include_router(calendar.router)
 app.include_router(intray.router)
 app.include_router(github.router)
 app.include_router(memory.router)
+# Coarse persona layer (composes the connectors)
+app.include_router(alistair.router)
 # Skills (description APIs)
 app.include_router(skill.router)
 
@@ -133,11 +136,13 @@ def manifest() -> dict:
     """
     spec = app.openapi()
     groups: dict[str, list[dict]] = {
-        "notion": [], "calendar": [], "intray": [], "github": [], "memory": [], "skill": []
+        "notion": [], "calendar": [], "intray": [], "github": [], "memory": [],
+        "alistair": [], "skill": []
     }
     prefixes = {
         "/api/notion": "notion", "/api/calendar": "calendar", "/api/intray": "intray",
-        "/api/github": "github", "/api/memory": "memory", "/api/skill": "skill",
+        "/api/github": "github", "/api/memory": "memory", "/api/alistair": "alistair",
+        "/api/skill": "skill",
     }
     for path, item in spec.get("paths", {}).items():
         key = next((g for pre, g in prefixes.items() if path.startswith(pre)), None)
@@ -154,7 +159,7 @@ def manifest() -> dict:
                 "description": op.get("description", ""),
             })
 
-    function_apis = {k: groups[k] for k in ("notion", "calendar", "intray", "github", "memory")}
+    function_apis = {k: groups[k] for k in ("notion", "calendar", "intray", "github", "memory", "alistair")}
     description_apis = {
         "list_endpoint": "GET /api/skill",
         "get_endpoint": "GET /api/skill/{slug}",
