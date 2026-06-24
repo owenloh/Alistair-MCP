@@ -38,14 +38,17 @@ CODE_TTL = 600           # 10m authorization codes
 class SingleUserOAuthProvider(
     OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]
 ):
-    def __init__(self, service_key_getter):
-        # callable returning the current SERVICE_API_KEY (read lazily so a rotated
-        # key takes effect without reconstructing the provider)
+    def __init__(self, service_key_getter, approval_secret_getter, base_url: str):
+        # getters are read lazily so a rotated key/password takes effect without
+        # reconstructing the provider
         self._service_key = service_key_getter
+        self._approval_secret = approval_secret_getter
+        self._base_url = base_url.rstrip("/")
         self._clients: dict[str, OAuthClientInformationFull] = {}
         self._codes: dict[str, AuthorizationCode] = {}
         self._access: dict[str, AccessToken] = {}
         self._refresh: dict[str, RefreshToken] = {}
+        self._pending: dict[str, dict] = {}  # txn -> auth request awaiting operator approval
 
     # ---- dynamic client registration ----
     async def get_client(self, client_id: str):
@@ -54,20 +57,55 @@ class SingleUserOAuthProvider(
     async def register_client(self, client_info: OAuthClientInformationFull):
         self._clients[client_info.client_id] = client_info
 
-    # ---- authorization (auto-approve: one user, no consent UI) ----
+    # ---- authorization (operator-gated: send the browser to the approval page) ----
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
+        # We do NOT mint a code here. Knowing the public URL must not be enough to
+        # connect, so stash the (already redirect_uri-validated) request and redirect
+        # the browser to /oauth/consent. The code is minted only after the operator
+        # enters the approval password (complete_authorization).
+        txn = "tx_" + secrets.token_urlsafe(24)
+        self._pending[txn] = {
+            "client_id": client.client_id,
+            "redirect_uri": str(params.redirect_uri),
+            "redirect_uri_provided_explicitly": params.redirect_uri_provided_explicitly,
+            "scopes": params.scopes or SCOPES,
+            "code_challenge": params.code_challenge,
+            "state": params.state,
+            "resource": params.resource,
+            "expires_at": time.time() + CODE_TTL,
+        }
+        return f"{self._base_url}/oauth/consent?txn={txn}"
+
+    # ---- operator approval gate ----
+    def pending_client(self, txn: str) -> str | None:
+        """client_id for a live pending approval, or None if unknown/expired."""
+        p = self._pending.get(txn)
+        if p and p["expires_at"] > time.time():
+            return p["client_id"]
+        self._pending.pop(txn, None)
+        return None
+
+    def verify_approval(self, password: str) -> bool:
+        secret = self._approval_secret()
+        return bool(secret) and bool(password) and secrets.compare_digest(password, secret)
+
+    def complete_authorization(self, txn: str) -> str | None:
+        """Mint the code for an approved pending request; return the client redirect."""
+        p = self._pending.pop(txn, None)
+        if not p or p["expires_at"] <= time.time():
+            return None
         code = "ac_" + secrets.token_urlsafe(32)
         self._codes[code] = AuthorizationCode(
             code=code,
-            scopes=params.scopes or SCOPES,
+            scopes=p["scopes"],
             expires_at=time.time() + CODE_TTL,
-            client_id=client.client_id,
-            code_challenge=params.code_challenge,
-            redirect_uri=params.redirect_uri,
-            redirect_uri_provided_explicitly=params.redirect_uri_provided_explicitly,
-            resource=params.resource,
+            client_id=p["client_id"],
+            code_challenge=p["code_challenge"],
+            redirect_uri=p["redirect_uri"],
+            redirect_uri_provided_explicitly=p["redirect_uri_provided_explicitly"],
+            resource=p["resource"],
         )
-        return construct_redirect_uri(str(params.redirect_uri), code=code, state=params.state)
+        return construct_redirect_uri(p["redirect_uri"], code=code, state=p["state"])
 
     async def load_authorization_code(self, client: OAuthClientInformationFull, authorization_code: str):
         ac = self._codes.get(authorization_code)
