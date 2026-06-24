@@ -14,19 +14,44 @@ Legend: ✅ done · 🔨 active · 📋 queued · 🚫 won't / can't · ⚠️ y
 
 ---
 
+## Progress snapshot — toward a solid Alistair MCP
+
+The MCP is the last layer; everything below is the substrate it will expose as tools.
+
+| Layer (what the MCP needs) | State | Where it lives |
+| --- | --- | --- |
+| **Notion read** — connector-exact markdown (tables, mentions, colors, files, synced) + pagination | ✅ **done & deployed** | live on Railway; 34/35 live diff, 18 golden |
+| **Notion write** — markdown→blocks parity (containers, colors, spans, media, mentions) | ✅ built + **hardened** | dev; **124 golden checks**; 27-agent adversarial review found & fixed **16 bugs** (Notion-400 risks + round-trip corruption); deploying to main |
+| **Calendar / MS To-Do** domain ops | ✅ already in service | `app/services/*` |
+| **Token persistence** (Google / MS refresh) | ✅ resolved | Google=env, MS=gist |
+| **Memory** — SQLite event-log on a volume, rank→summarise | 📋 queued (#2) | **formula specced** → `docs/MEMORY_FORMULA.md` |
+| **Coarse Alistair tools** — load_context, get_skill, daily_brief … | 📋 queued (#2) | designed |
+| **GitHub** read + merge_pr + project_context | 📋 queued | needs `GITHUB_REPO_TOKEN` ⚠️ |
+| **MCP wrap** — Streamable-HTTP + OAuth, everything-as-tools | 📋 queued (#1) | spec saved |
+| **claude.ai rollout** config | 📋 queued ⚠️ | steps documented |
+
+**Rough completion of the Notion-fidelity milestone (#3): ~90%** — read shipped, write built & unit-green and awaiting its adversarial pass + live create-diff before it deploys.
+
+---
+
 ## #3 — Notion fidelity (read + write parity with the connector)
 
 | Item | Status | How we proceed |
 | --- | --- | --- |
-| Read renderer: headings (incl. h4), toggle, callout, columns, `<empty-block/>`, image, lists, quote, code, divider, inline bold/italic/code/link/math | ✅ done | committed `2b0c76b`. ≈85% structural parity. |
-| Read renderer → **100%**: **tables** `<table>`, **databases / data-sources**, **mentions** (`<mention-page>`, `<mention-user>`, date), synced / `<unknown>` blocks, exact special-char escaping (`\$ \| \< \> \[ \] \* \\`) | 🔨 active | You flagged tables + databases + mentions as must-be-100%. This is the next change. |
-| Write parser `markdown_to_blocks`: `#### → heading_4` (confirmed creatable), `<empty-block/>`, `<details>/<summary>` toggles + children, `<callout>` + children, `![](url)`, inline math, tables, mentions; tab-indent → child nesting | 🔨 active | The symmetric write side. Today it has the `#### → heading_3` bug and drops rich blocks. |
-| **Pagination** of fetch (cursor/offset + `has_more`) so long & deep pages come through **in full** — never truncated, never an oversized single response | 🔨 active | You confirmed: "must add pagination such that all is fetched properly." This — not a bigger block cap — is the real fix for long pages. |
-| Caps: depth 4 → 6; the per-response block cap survives only as a chunk-size safety | 🔨 active | The connector's own fetch of your tray overflowed at **85K chars** — proof a single dump has a hard ceiling, so pagination beats a bigger number. Folded into the pagination work. |
-| Acceptance: connector-vs-Railway-API **diff** on real pages (tray, coffee, references, one deep/long page) | 📋 queued | After the above deploys. |
+| Read renderer: headings (incl. h4), toggle, callout, columns, `<empty-block/>`, image, lists, quote, code, divider, inline bold/italic/code/link/math | ✅ done | committed `2b0c76b`. |
+| Read renderer → **100%**: **tables** (multi-line `<table>/<tr>/<td>`), **databases** (`<database inline>`/`<mention-database>`), **mentions** (page/database/user + `<mention-date>`), files (`<video/audio/file/pdf>`), `<table_of_contents/>`, `<synced_block>`, `<unknown/>`, exact escape set `\ * ~ \` $ [ ] < > { } \| ^` | ✅ done | Aligned to the authoritative `notion://docs/enhanced-markdown-spec`. Live diff on the Library hub = **34/35 lines byte-identical**; 18 golden checks pass. Deployed. |
+| **Colors on read** `{color=..}` (block) + `<span color=>`/`<span underline=>` (inline) | ✅ done | Landed *with* the write parser so they round-trip symmetrically. `_bg`↔`_background` translated. |
+| **Remaining read gaps** (documented): bold **child-page title** (`**Lie Theory**` — REST `child_page.title` is a plain string, needs N+1 fetch); tables/dates/files/synced are spec-exact + unit-tested but not yet live-diffed (no workspace page has one) | 🔨 tracked | minor / REST-limited |
+| Write parser `markdown_to_blocks` — recursive: `<details>` toggles, `<callout>`, `<columns>/<column>`, multi-line `<table>`, `<synced_block>`/reference, `$$` equation, `<table_of_contents/>`, media, image captions, `<page>`→`link_to_page`; tab-indent→child nesting; block colors + inline span color/underline; `<br>`; richer mentions (date+tz, user) | ✅ built · 🔨 verifying | Committed to dev `cce5db5`. 57 golden checks pass incl. an idempotent md→blocks→md round-trip. Fixed `#### → heading_4` and a `<mention-date>` timezone-`/` regex bug. Adversarial review running (REST-acceptance + edge cases) before it merges to main. |
+| **Pagination** of fetch (cursor + `has_more`) so long & deep pages come through **in full** | ✅ done | `op_fetch` returns `has_more`/`next_cursor`; caller pages until null. Deployed. |
+| Caps: depth 4 → 6; per-response block cap is now just a chunk-size safety | ✅ done | Pagination, not a bigger cap, is the real fix. Deployed. |
+| Acceptance diff: read hub 34/35 ✅; write md→blocks→md golden ✅; **live create-then-read diff** of a written page | 🔨 partial | The live write diff runs after the write parser deploys. |
 
-**Parity verdict today (honest):** read ≈85% (→100% with tables/mentions/db/escaping);
-**write not yet** (parser rewrite is active). Full read+write parity is **not reached yet**.
+**Parity verdict today (honest):** **read = done & deployed** (every connector block/inline
+*type* to the authoritative spec, incl. colors now; live page diffed 34/35, the 1 diff is a REST
+limitation). **Write = built, unit-green (57 checks), on dev** — recursive containers, colors,
+spans, media, mentions all parse and round-trip; pending its adversarial review + a live
+create-diff before deploying to main.
 
 ## #2 — Memory + coarse tools
 
