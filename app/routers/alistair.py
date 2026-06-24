@@ -88,3 +88,26 @@ def add_action(body: AddActionRequest) -> dict:
     return notion_service.op_add_action(
         get_settings(), name=body.name, status=body.status, due=body.due
     )
+
+
+_PROJECT_CONTEXT_DOC = (
+    "Pull a project's live GitHub state in one call when Owen asks 'what's happening with "
+    "<project>', 'where's project X at', or 'any open PRs'. Composes repo metadata, recent "
+    "commits, open pull requests, open issues, and a README excerpt for owner/repo. This is the "
+    "GitHub side of the daily brief: it fishes the live detail Owen's Notion project pages link "
+    "out to. Read-only and graceful — any failing source is reported under 'unavailable', not "
+    "fatal. Then summarise what moved / what's waiting in Alistair's voice; propose, don't act."
+)
+
+
+class ProjectContextRequest(BaseModel):
+    owner: str
+    repo: str
+    commits: int = 5
+
+
+@router.post("/project-context", summary="Compose a project's GitHub state", description=_PROJECT_CONTEXT_DOC)
+def project_context(body: ProjectContextRequest) -> dict:
+    return alistair_service.project_context(
+        get_settings(), owner=body.owner, repo=body.repo, commits=body.commits
+    )

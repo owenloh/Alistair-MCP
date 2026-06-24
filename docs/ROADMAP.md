@@ -4,10 +4,10 @@ A living triage of everything raised while turning the **Alistair Skills API**
 into the single **Alistair backend**. Last updated 2026-06-24.
 
 **Agreed build order:**
-**#3 Notion fidelity** (read→100% + write parity + pagination)
-→ **#2 memory + coarse tools**
-→ **GitHub read/merge**
-→ **#1 MCP wrap**
+**#3 Notion fidelity** (read→100% + write parity + pagination) ✅
+→ **#2 memory + coarse tools** ✅
+→ **GitHub read/merge** ✅ built on dev
+→ **#1 MCP wrap** ← next
 → **claude.ai rollout** (your config).
 
 Legend: ✅ done · 🔨 active · 📋 queued · 🚫 won't / can't · ⚠️ your action
@@ -26,7 +26,7 @@ The MCP is the last layer; everything below is the substrate it will expose as t
 | **Token persistence** (Google / MS refresh) | ✅ resolved | Google=env, MS=gist |
 | **Memory** — SQLite event-log on a volume, rank→summarise | ✅ **deployed & live-verified** · ⚠️ attach a volume to persist | `app/services/memory.py` + `/api/memory/{save,get,list}`; **44 golden checks**; live save→get→retract round-trip clean. Formula → `docs/MEMORY_FORMULA.md` |
 | **Coarse Alistair tools** — load_context, daily_brief, save_reference, add_action … | ✅ **4 deployed & live-verified** (52 checks) | `POST /api/alistair/{load-context,daily-brief,save-reference,add-action}`. Live: load_context returns the constitution; daily_brief composed 7 projects / 14 next actions / 1 cal event / 1 in-tray; **save_reference dry_run anchored correctly on the real tray** (no write). `get_skill`/`add_to_intray` already exist; `project_context` waits on GitHub #7 |
-| **GitHub** read + merge_pr + project_context | 📋 queued | needs `GITHUB_REPO_TOKEN` ⚠️ |
+| **GitHub** read + merge_pr + project_context | ✅ **built & tested on dev** (49 checks) | 8 read/merge routes + `project_context`; `merge_pr` is preview-unless-`confirm=true`. Needs `GITHUB_REPO_TOKEN` ⚠️ to run live |
 | **MCP wrap** — Streamable-HTTP + OAuth, everything-as-tools | 📋 queued (#1) | spec saved |
 | **claude.ai rollout** config | 📋 queued ⚠️ | steps documented |
 
@@ -123,10 +123,10 @@ storage and Google, as coded, does not.
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| Read endpoints: get-file, list-tree, search-code, recent-commits, list-prs / issues | 📋 queued | `GitHubClient` + the `push-file` route already exist as the base. |
-| `merge_pr` with **explicit in-turn confirm** (never merge-by-voice silently) | 📋 queued | Sensitive / near-irreversible. |
-| `project_context` coarse tool (fish project details that Notion pages link to) | 📋 queued | The reason you wanted GitHub. |
-| `GITHUB_REPO_TOKEN` — separate **fine-grained PAT** (repo read + PR), so the gist token stays minimal | ⚠️ your action | Add in **Railway Variables**; don't paste in chat. |
+| Read endpoints: get-file, list-tree, search-code, recent-commits, list-prs / issues, get-pr | ✅ **built & tested on dev** | `POST /api/github/*`. On `GitHubClient`; base64 decode, PR-vs-issue split, binary/dir guards. **49 checks.** |
+| `merge_pr` with **explicit in-turn confirm** (never merge-by-voice silently) | ✅ **built & tested on dev** | `merge_pr_guarded`: `confirm=false` (default) returns a PREVIEW and changes nothing; only `confirm=true` merges. Tests assert no merge call without confirm. |
+| `project_context` coarse tool (fish project details that Notion pages link to) | ✅ **built & tested on dev** | `POST /api/alistair/project-context` — repo meta + commits + open PRs + open issues + README excerpt, graceful-degrade like `daily_brief`. |
+| `GITHUB_REPO_TOKEN` — separate **fine-grained PAT** (repo read + PR), so the gist token stays minimal | ⚠️ your action | Add in **Railway Variables** (falls back to `GITHUB_TOKEN` if unset). Don't paste in chat. Until it exists the read/merge routes return a clean 503. |
 
 ## #1 — MCP wrap + rollout
 

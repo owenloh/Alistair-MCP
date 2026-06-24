@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     github_token: str | None = None
     gist_id: str | None = None
     gist_filename: str = "mstodo_refresh_token"
+    # Separate fine-grained PAT for repo read + PR (merge) so the gist token stays
+    # minimal. Falls back to github_token if a dedicated one isn't set.
+    github_repo_token: str | None = None
 
     # ---- Memory (SQLite append-only event log) ----
     # Railway sets RAILWAY_VOLUME_MOUNT_PATH automatically when a volume is
@@ -70,6 +73,12 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.railway_env.strip().lower() == "production"
+
+    @property
+    def github_read_token(self) -> str | None:
+        """Token for the repo-read + merge_pr endpoints. Prefer the dedicated
+        fine-grained PAT; fall back to the gist token so one token also works."""
+        return self.github_repo_token or self.github_token
 
     def memory_db_file(self) -> str:
         """Resolve the SQLite path: explicit override > Railway volume > ./data."""

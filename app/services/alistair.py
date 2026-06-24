@@ -125,3 +125,53 @@ def daily_brief(settings: Settings) -> dict:
 
     out["deliver_as"] = "Follow the daily-brief skill (GET /api/skill/daily-brief) for format + voice."
     return out
+
+
+def project_context(settings: Settings, owner: str, repo: str, *, commits: int = 5, _client=None) -> dict:
+    """Compose a project's live GitHub state in one call (graceful degrade).
+
+    Repo metadata + recent commits + open PRs + open issues + a README excerpt.
+    This is the reason Owen wanted GitHub: fish the live project details his Notion
+    project pages link out to, in a single read. Read-only. Any failing source is
+    reported under `unavailable` instead of failing the whole call.
+    """
+    from .github import GitHubClient  # lazy import keeps this module's graph light
+
+    gh = _client
+    own_client = False
+    if gh is None:
+        token = settings.github_read_token
+        if not token:
+            raise ServiceError(
+                "GITHUB_REPO_TOKEN (or GITHUB_TOKEN) is not configured.", status_code=503
+            )
+        gh = GitHubClient(token)
+        own_client = True
+
+    out: dict = {
+        "owner": owner, "repo": repo, "meta": None, "recent_commits": None,
+        "open_prs": None, "open_issues": None, "readme_excerpt": None, "unavailable": [],
+    }
+    try:
+        for key, fn in (
+            ("meta", lambda: gh.get_repo(owner, repo)),
+            ("recent_commits", lambda: gh.recent_commits(owner, repo, limit=commits)),
+            ("open_prs", lambda: gh.list_prs(owner, repo, state="open")),
+            ("open_issues", lambda: gh.list_issues(owner, repo, state="open")),
+            ("readme_excerpt", lambda: (gh.get_readme(owner, repo).get("content") or "")[:1500]),
+        ):
+            try:
+                out[key] = fn()
+            except ServiceError as e:
+                out["unavailable"].append({"source": key, "reason": e.message, "status": e.status_code})
+            except Exception as e:  # a single bad source must never 500 the whole call
+                out["unavailable"].append({"source": key, "reason": str(e)[:200], "status": 500})
+    finally:
+        if own_client:
+            gh.close()
+
+    out["how_to"] = (
+        "Summarise the project for Owen in your own voice: what moved (recent commits), "
+        "what's waiting (open PRs/issues), what it is (readme). Read-only — propose, don't act."
+    )
+    return out
