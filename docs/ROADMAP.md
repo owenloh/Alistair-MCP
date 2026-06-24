@@ -126,7 +126,7 @@ storage and Google, as coded, does not.
 | Read endpoints: get-file, list-tree, search-code, recent-commits, list-prs / issues, get-pr | ✅ **built & tested on dev** | `POST /api/github/*`. On `GitHubClient`; base64 decode, PR-vs-issue split, binary/dir guards. **49 checks.** |
 | `merge_pr` with **explicit in-turn confirm** (never merge-by-voice silently) | ✅ **built & tested on dev** | `merge_pr_guarded`: `confirm=false` (default) returns a PREVIEW and changes nothing; only `confirm=true` merges. Tests assert no merge call without confirm. |
 | `project_context` coarse tool (fish project details that Notion pages link to) | ✅ **built & tested on dev** | `POST /api/alistair/project-context` — repo meta + commits + open PRs + open issues + README excerpt, graceful-degrade like `daily_brief`. |
-| `GITHUB_REPO_TOKEN` — separate **fine-grained PAT** (repo read + PR), so the gist token stays minimal | ⚠️ your action | Add in **Railway Variables** (falls back to `GITHUB_TOKEN` if unset). Don't paste in chat. Until it exists the read/merge routes return a clean 503. |
+| `GITHUB_REPO_TOKEN` — separate **fine-grained PAT** (repo read + PR), so the gist token stays minimal | ⚠️ your action | Add in **Railway Variables** (falls back to `GITHUB_GIST_TOKEN` if unset). Don't paste in chat. Until it exists the read/merge routes return a clean 503. |
 
 ## #1 — MCP wrap + rollout
 

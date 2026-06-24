@@ -219,7 +219,7 @@ check("project_context keeps the good sources", pc2["recent_commits"] is not Non
 
 
 # ---- HTTP layer via TestClient (no tokens -> 503; manifest counts) ----
-for k in ("GITHUB_TOKEN", "GITHUB_REPO_TOKEN", "SERVICE_API_KEY"):
+for k in ("GITHUB_TOKEN", "GITHUB_GIST_TOKEN", "GITHUB_REPO_TOKEN", "SERVICE_API_KEY"):
     os.environ.pop(k, None)
 from app import config as _cfg
 _cfg.get_settings.cache_clear()

@@ -23,7 +23,7 @@ _TIMEOUT = httpx.Timeout(30.0)
 class GitHubClient:
     def __init__(self, token: str):
         if not token:
-            raise ServiceError("GITHUB_TOKEN is not configured.", status_code=503)
+            raise ServiceError("GITHUB_GIST_TOKEN is not configured.", status_code=503)
         self._client = httpx.Client(
             timeout=_TIMEOUT,
             headers={

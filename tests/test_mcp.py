@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["MEMORY_DB_PATH"] = os.path.join(tempfile.mkdtemp(prefix="mcp_mem_"), "mem.db")
 os.environ.pop("SERVICE_API_KEY", None)
 os.environ.pop("GITHUB_TOKEN", None)
+os.environ.pop("GITHUB_GIST_TOKEN", None)
 os.environ.pop("GITHUB_REPO_TOKEN", None)
 
 from app import config as _cfg

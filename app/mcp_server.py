@@ -348,7 +348,7 @@ def intray(action: str, title: str | None = None, task_id: str | None = None) ->
 def _gh_token() -> str:
     token = get_settings().github_read_token
     if not token:
-        raise ServiceError("GITHUB_REPO_TOKEN (or GITHUB_TOKEN) is not configured.", status_code=503)
+        raise ServiceError("GITHUB_REPO_TOKEN (or GITHUB_GIST_TOKEN) is not configured.", status_code=503)
     return token
 
 
