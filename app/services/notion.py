@@ -502,8 +502,9 @@ def _escape_md(text: str) -> str:
 
 
 def _notion_url(nid: str | None) -> str:
+    # Match the connector's canonical link form: https://app.notion.com/p/<id>.
     raw = (nid or "").replace("-", "")
-    return f"https://www.notion.so/{raw}" if raw else ""
+    return f"https://app.notion.com/p/{raw}" if raw else ""
 
 
 def _mention_md(token: dict) -> str:
