@@ -257,7 +257,7 @@ _MENTION_RE = re.compile(
     r'<mention-(?P<mkind>page|database|user)(?:\s+url="(?P<murl>[^"]*)")?>'
     r'(?P<mlabel>.*?)</mention-(?P=mkind)>'
 )
-_ESC_RE = re.compile(r"\\([\\`*\[\]<>|$~])")
+_ESC_RE = re.compile(r"\\([\\`*\[\]<>{}|$~^])")
 _PLACEHOLDER_RE = re.compile(r"(\x00\d+\x00)")  # capturing group so split keeps the markers
 
 
@@ -493,7 +493,8 @@ def rich_text_md(rich: list[dict] | None) -> str:
     return "".join(out)
 
 
-_MD_ESCAPE_RE = re.compile(r"([\\`*\[\]<>|$~])")
+# Exact escape set from the connector's enhanced-markdown spec: \ * ~ ` $ [ ] < > { } | ^
+_MD_ESCAPE_RE = re.compile(r"([\\`*\[\]<>{}|$~^])")
 
 
 def _escape_md(text: str) -> str:
@@ -519,7 +520,11 @@ def _mention_md(token: dict) -> str:
     if mtype == "user":
         return f"<mention-user>{label}</mention-user>"
     if mtype == "date":
-        return label or (m.get("date") or {}).get("start", "")
+        d = m.get("date") or {}
+        attrs = f' start="{d["start"]}"' if d.get("start") else ""
+        if d.get("end"):
+            attrs += f' end="{d["end"]}"'
+        return f"<mention-date{attrs}/>"
     return label
 
 
@@ -575,11 +580,9 @@ def block_to_markdown(block: dict) -> str:
     if t == "equation":
         return f"$$\n{data.get('expression', '')}\n$$"
     if t == "image":
-        return f"![]({_file_url(data)})"
+        return f"![{rich_text_plain(data.get('caption'))}]({_file_url(data)})"
     if t in ("video", "audio", "file", "pdf"):
-        url = _file_url(data)
-        label = rich_text_plain(data.get("caption")) or data.get("name") or t
-        return f"[{label}]({url})" if url else ""
+        return f'<{t} src="{_file_url(data)}">{rich_text_plain(data.get("caption"))}</{t}>'
     if t in ("bookmark", "embed", "link_preview"):
         url = data.get("url", "")
         label = rich_text_plain(data.get("caption")) or url
@@ -590,12 +593,16 @@ def block_to_markdown(block: dict) -> str:
     if t == "child_page":
         return f'<page url="{_block_url(block)}">{data.get("title", "")}</page>'
     if t == "child_database":
-        return f'<database url="{_block_url(block)}">{data.get("title", "")}</database>'
-    if t in ("table_of_contents", "breadcrumb"):
+        return f'<database url="{_block_url(block)}" inline="true">{data.get("title", "")}</database>'
+    if t == "table_of_contents":
+        return "<table_of_contents/>"
+    if t == "breadcrumb":
         return ""
     if t == "paragraph":
         return text if text else "<empty-block/>"
-    return text
+    if text:
+        return text
+    return "<unknown/>"
 
 
 def _render_children(client: NotionClient, blk: dict, depth: int, counter: dict, flat: list[dict]) -> str:
@@ -652,8 +659,13 @@ def _render_one(client: NotionClient, blk: dict, depth: int, counter: dict,
                 md_parts.append(_indent(sub))
         md_parts.append(f"</{tag}>")
     elif t == "table":
-        header = "true" if data.get("has_column_header") else "false"
-        md_parts.append(f'<table header-row="{header}">')
+        # Connector spec: multi-line, tab-indented; attrs only emitted when true.
+        attrs = ""
+        if data.get("has_column_header"):
+            attrs += ' header-row="true"'
+        if data.get("has_row_header"):
+            attrs += ' header-column="true"'
+        md_parts.append(f"<table{attrs}>")
         if has_kids:
             for row in client.block_children_all(blk["id"]):
                 if counter["n"] >= _MAX_TOTAL_BLOCKS:
@@ -661,16 +673,24 @@ def _render_one(client: NotionClient, blk: dict, depth: int, counter: dict,
                 if row.get("type") != "table_row":
                     continue
                 counter["n"] += 1
-                cells = (row.get("table_row") or {}).get("cells", [])
-                tds = "".join(f"<td>{rich_text_md(cell)}</td>" for cell in cells)
-                md_parts.append(f"<tr>{tds}</tr>")
+                md_parts.append("\t<tr>")
+                for cell in (row.get("table_row") or {}).get("cells", []):
+                    md_parts.append(f"\t\t<td>{rich_text_md(cell)}</td>")
+                md_parts.append("\t</tr>")
         md_parts.append("</table>")
     elif t == "synced_block":
-        # Synced content renders transparently (no wrapper), like the connector.
+        synced_from = data.get("synced_from")
+        if synced_from:
+            md_parts.append(f'<synced_block_reference url="{_notion_url((synced_from or {}).get("block_id"))}">')
+            close = "</synced_block_reference>"
+        else:
+            md_parts.append(f'<synced_block url="{_block_url(blk)}">')
+            close = "</synced_block>"
         if has_kids:
             sub = _render_children(client, blk, depth, counter, flat)
             if sub:
-                md_parts.append(sub)
+                md_parts.append(_indent(sub))
+        md_parts.append(close)
     else:
         line = block_to_markdown(blk)
         if line:
