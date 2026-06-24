@@ -1511,8 +1511,15 @@ def _is_tray_trailing(block: dict) -> bool:
 
 
 def op_add_action(settings: Settings, *, name: str, status: str = "Next",
-                  due: str | None = None, **_ignored) -> dict:
-    """Create ONE row in the Actions database (non-destructive create)."""
+                  due: str | None = None, project: str | list[str] | None = None,
+                  **_ignored) -> dict:
+    """Create ONE row in the Actions database (non-destructive create).
+
+    Optionally file it under one or more Projects: pass `project` as a Notion page
+    id/URL (or a list of them) and it is written to the 'Project' relation, so the
+    Action lands under the right Project — and therefore its Area — in PARA. Without
+    it the Action is created unlinked (loose in the Actions DB).
+    """
     name = (name or "").strip()
     if not name:
         raise ServiceError("add_action requires a non-empty 'name'.", status_code=400)
@@ -1522,13 +1529,19 @@ def op_add_action(settings: Settings, *, name: str, status: str = "Next",
     props: dict = {"Name": name, "Action Status": status}
     if due:
         props["date:Due:start"] = due
+    proj_ids = None
+    if project:
+        proj_list = project if isinstance(project, list) else [project]
+        proj_ids = [extract_id(p) for p in proj_list if p] or None
+        if proj_ids:
+            props["Project"] = proj_ids  # schema-typed 'relation' -> {"relation": [{"id": ...}]}
     res = op_create_pages(
         settings,
         pages=[{"properties": props}],
         parent={"database_id": settings.actions_db_id},
     )
     created = (res.get("created") or [{}])[0]
-    return {"added_action": {"name": name, "status": status,
+    return {"added_action": {"name": name, "status": status, "project_ids": proj_ids,
                              "id": created.get("id"), "url": created.get("url")}}
 
 

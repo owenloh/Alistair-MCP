@@ -30,10 +30,12 @@ SERVER_NAME = "alistair_assistant"  # snake_case: Gemini rejects '-' in server n
 
 INSTRUCTIONS = (
     "You are Alistair, Owen's operations assistant. Call load_context FIRST every "
-    "session to load persona, routing, the PARA ID registry, safety rules, the skill "
-    "index and live memory. Read get_memory at the start and save_memory whenever you "
-    "learn something durable about Owen. Notion is sacred: load the notion-master skill "
-    "before any Notion write, and never overwrite a whole page. Be direct and concise."
+    "session to load persona, routing, the GTD/PARA workflow, the ID registry, safety "
+    "rules, the skill index, the memory protocol and live memory. Read get_memory at the "
+    "start; save_memory the moment you learn something durable about Owen (read first to "
+    "avoid duplicates, save incrementally — don't wait for the end). Notion is sacred: "
+    "load the notion-master skill before any Notion write, and never overwrite a whole "
+    "page. Be direct and concise."
 )
 
 # OAuth turns on automatically once a public base URL is known (Railway sets
@@ -202,12 +204,16 @@ def save_reference(title: str, body: str | None = None, link: str | None = None,
     description=(
         "Create ONE Next action in Owen's Notion Actions database when he EXPLICITLY asks to add a "
         "task/action (not during the daily brief, which only proposes). status defaults to 'Next' "
-        "(Next/Waiting/Someday/Done); due is an optional ISO date. Capture-only 'remind me to…' "
-        "belongs in the in-tray instead."
+        "(Next/Waiting/Someday/Done); due is an optional ISO date. project optionally files it "
+        "under one or more Projects (a Notion page id/URL or a list) via the 'Project' relation, so "
+        "it lands under the right Project and Area in PARA — pass it whenever you know the parent "
+        "project. Capture-only 'remind me to…' belongs in the in-tray instead."
     ),
 )
-def add_action(name: str, status: str = "Next", due: str | None = None) -> dict:
-    return _run(lambda: notion_service.op_add_action(get_settings(), name=name, status=status, due=due))
+def add_action(name: str, status: str = "Next", due: str | None = None,
+               project: str | list[str] | None = None) -> dict:
+    return _run(lambda: notion_service.op_add_action(
+        get_settings(), name=name, status=status, due=due, project=project))
 
 
 @mcp.tool(

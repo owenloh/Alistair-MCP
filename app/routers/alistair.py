@@ -59,7 +59,10 @@ _ADD_ACTION_DOC = (
     "Create ONE Next action in Owen's Notion Actions database when he EXPLICITLY asks to add a "
     "task/action (not during the daily brief, which only proposes). Non-destructive create. "
     "name is the action title; status defaults to 'Next' (Next/Waiting/Someday/Done); due is an "
-    "optional ISO date. Capture-only intent ('remind me to…') belongs in the in-tray instead."
+    "optional ISO date. project optionally files it under one or more Projects (a Notion page "
+    "id/URL or a list) via the 'Project' relation, so it lands under the right Project and Area "
+    "in PARA — pass it whenever you know the parent project. Capture-only intent ('remind me "
+    "to…') belongs in the in-tray instead."
 )
 
 
@@ -74,6 +77,7 @@ class AddActionRequest(BaseModel):
     name: str
     status: str = "Next"
     due: str | None = None
+    project: str | list[str] | None = None
 
 
 @router.post("/save-reference", summary="Append to the References Tray", description=_SAVE_REFERENCE_DOC)
