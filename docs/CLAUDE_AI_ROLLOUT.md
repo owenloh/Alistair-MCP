@@ -10,7 +10,8 @@ Reference: `docs/ALISTAIR_MCP_BUILD_SPEC.md` §4–6.
 ## 0. The endpoint
 
 - **MCP URL:** `https://<your-railway-host>/mcp` (find the host in the Railway dashboard, or on the service's `/` page)
-- **Server name:** `alistair_assistant` · **Transport:** Streamable-HTTP
+- **Server name:** `alistair_assistant` · **Transport:** Streamable-HTTP · **26 tools** (Notion, Calendar, **Gmail read+draft**, in-tray, GitHub, memory, persona/skills)
+- **Self-contained:** the detailed skills (`notion-master`, `daily-brief`, `notion-references-tray`, `microsoft-todo-intray`, `gmail`) are served *inside* the MCP via the `get_skill` tool — so you upload only one thin bootstrap skill, and need **no other connectors or skill uploads**.
 - **Auth:** claude.ai → **OAuth** (auto-discovered) **gated by an approval password** — only you can approve a connection. Every other client → **Bearer** `SERVICE_API_KEY`.
 
 Check it's healthy: open `/` — the `mcp` block shows `"oauth_enabled": true`. If it
@@ -25,6 +26,7 @@ says `false`, set `PUBLIC_BASE_URL` (below) and redeploy.
 | `PUBLIC_BASE_URL` | OAuth issuer, e.g. `https://<your-railway-host>`. Only needed if `RAILWAY_PUBLIC_DOMAIN` isn't auto-set (the `/` page tells you). | usually auto |
 | Railway **Volume** mounted (any path) | Persists memory across redeploys. Without it memory is wiped each deploy (`/` shows `memory_persistent:false`). | recommended |
 | `GITHUB_REPO_TOKEN` | Fine-grained PAT (repo read + PR) so `project_context`/`github_*` work. Falls back to the gist token, which lacks repo scope. | for GitHub tools |
+| `GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN` | Calendar + Gmail. Mint with `scripts/get_google_token.py`. Scopes: `…/auth/calendar` (read+write) and, for Gmail, `gmail.readonly` + `gmail.compose`. Publish the OAuth app to **Production** or the refresh token expires in 7 days. | for Calendar/Gmail |
 
 ## 2. claude.ai (web/desktop)
 
@@ -35,11 +37,15 @@ says `false`, set `PUBLIC_BASE_URL` (below) and redeploy.
    can't connect, even though the URL is public.)
 2. **Do NOT enable** the official **Notion / Todoist** connectors. All Notion/tasks flow
    through Alistair. (You can't replace the official one in place — just leave it off.)
-3. **Upload ONE "Alistair" Skill** (Settings → Capabilities → Skills). In its YAML set
-   **`disable-model-invocation: true`** so it is **opt-in** — it loads only when you say
-   "Alistair"/"Ali", not by relevance. The skill body tells Claude to: (a) call
-   `load_context()` + `get_memory()` at the start, (b) use Alistair's tools only (never a
-   built-in connector), (c) call `save_memory()` when it learns something durable.
+3. **Upload ONE "alistair" bootstrap Skill** (Settings → Capabilities → Skills). Put the
+   trigger in the **`description`** (scope it to the "Alistair/Ali" wake word + your Notion/
+   calendar/mail/tasks) so it auto-loads when you ask, not on unrelated turns. ⚠️ Do **not**
+   rely on `disable-model-invocation: true` for opt-in — that frontmatter flag makes a skill
+   **slash-command-only** (hidden from the model), so it won't fire on a spoken "Alistair" or
+   in voice. The thin body tells Claude to: (a) call `load_context` + `get_memory` first,
+   (b) `get_skill("notion-master")` before any Notion write, (c) use Alistair's tools only
+   (never a built-in connector), (d) `save_memory` when it learns something durable. The
+   detailed skills live **in the MCP** (`get_skill`) — you don't upload them separately.
 4. **Pause native memory** (Settings → Capabilities) so the MCP is the only memory. ⚠️
    Claude does not auto-write to MCP memory — the skill must tell it when to `save_memory`.
 

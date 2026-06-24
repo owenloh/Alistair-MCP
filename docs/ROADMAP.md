@@ -14,6 +14,17 @@ Legend: ✅ done · 🔨 active · 📋 queued · 🚫 won't / can't · ⚠️ y
 
 ---
 
+## Latest (2026-06-24) — Gmail, self-contained MCP, safe-write fix
+
+- **Gmail (read + draft, never sends)** ✅ live — `/api/gmail/*` (6) + 4 MCP tools (`gmail_search`, `gmail_read_thread`, `gmail_list_drafts`, `gmail_create_draft`). Rides the same Google token (scopes `gmail.readonly` + `gmail.compose`). Live-verified.
+- **Calendar write** ✅ now live — re-minted `GOOGLE_REFRESH_TOKEN` with the `…/auth/calendar` (read+write) scope; create/update/delete events verified (was 403 read-only).
+- **Alistair is self-contained** ✅ — the served skills (`notion-master`, `daily-brief`, `notion-references-tray`, `microsoft-todo-intray`) were adapted from the desktop connector + `/mnt` scripts to Alistair's own MCP tools (`notion_fetch`/`notion_query_database`/`intray`…). Every rule preserved. `load_context` is MCP-native (routing → tool names, `get_skill('<slug>')` retrieval, `retrieve_with` in the skill index) and now carries a **`now`** block (current date/time + live timezone — follows travel — with location inferred from the zone). So no separate skill uploads or other connectors are needed: one "alistair" bootstrap skill + the MCP.
+- **SAFETY fix** ✅ — the MCP `notion_update_page` now exposes `content_updates=[{old_str,new_str}]`, so the protocol's safe *targeted* edit (`update_content`) works over MCP; previously only the forbidden whole-page `replace_content` was reachable. Live-verified.
+- **Google official MCP — decision: keep ours.** Google now ships official remote MCP servers for Calendar/Gmail/Workspace. Our custom tools stay (built, verified, integrated with `daily_brief`/memory/persona, work in voice). Revisit only to offload calendar/gmail maintenance or for depth (attachments, labels); if so, add Google's MCP as a *second* connector rather than replacing Alistair.
+- Totals: **26 MCP tools**, ~50 REST endpoints, 5 served skills. Full suite **368 checks** green.
+
+---
+
 ## Progress snapshot — toward a solid Alistair MCP
 
 The MCP is the last layer; everything below is the substrate it will expose as tools.
@@ -138,14 +149,17 @@ Reference: **`docs/ALISTAIR_MCP_BUILD_SPEC.md`**. Key constraints:
 | Item | Status |
 | --- | --- |
 | FastAPI → MCP (official `mcp` SDK FastMCP), **Streamable HTTP**, mounted at `/mcp` | ✅ **built & tested on dev** — `alistair_assistant`, stateless+JSON responses, DNS-rebinding protection off (public server), boots + does the initialize handshake (protocol 2025-06-18) |
-| Tools wired (domain + persona + memory) with persona descriptions | ✅ **built & tested on dev** — **22 tools** (load_context, get/save_memory, get_skill, daily_brief, project_context, save_reference, add_action, notion_*, calendar_*, intray, github_*), each Alistair-voiced; safety hooks duplicated into descriptions; all in-process over the existing services. **45 checks.** |
+| Tools wired (domain + persona + memory) with persona descriptions | ✅ **built, tested & live** — **26 tools** (load_context, get/save_memory, get_skill, daily_brief, project_context, save_reference, add_action, notion_*, calendar_*, intray, github_*, **gmail_***), each Alistair-voiced; safety hooks duplicated into descriptions; all in-process over the existing services. `notion_update_page` exposes `content_updates` so the safe targeted edit works over MCP. |
 | **OAuth** (claude.ai custom-connector requirement) | ✅ **built & tested** (23 checks) — `app/mcp_oauth.py`: single-user OAuth 2.1 **gated by an approval password** (`/authorize` redirects to a consent page — no auto-approve, so the public URL is safe), open **dynamic client registration**, **PKCE** enforced, refresh tokens, and the static **SERVICE_API_KEY** also accepted as a bearer. Auto-enables when a public base URL resolves (Railway `RAILWAY_PUBLIC_DOMAIN`, or set `PUBLIC_BASE_URL`). Discovery at `/.well-known/oauth-authorization-server` + `/.well-known/oauth-protected-resource/mcp`. **Full DCR→authorize→PKCE-token→authenticated-/mcp flow verified live on Railway (8/8)**; only clicking "connect" in claude.ai remains (can't reach claude.ai from here). |
 | Hand you the `/mcp` URL + auth | ✅ `https://<railway-host>/mcp` — claude.ai uses OAuth (auto-discovered); other clients send `Authorization: Bearer <SERVICE_API_KEY>`. Full steps in **`docs/CLAUDE_AI_ROLLOUT.md`**. |
 
 **claude.ai rollout — ⚠️ your action (I'll document the exact steps):** add the Alistair MCP
 as a custom connector; **do not enable** the official Notion/Todoist connectors; upload **one**
-Alistair skill with `disable-model-invocation: true` (opt-in on "Alistair/Ali"); **pause native
-memory** so the MCP is the only memory.
+"alistair" bootstrap skill whose **description** is scoped to the "Alistair/Ali" wake word so it
+auto-loads on it (note: `disable-model-invocation: true` makes a skill slash-command-only — it
+won't fire on a spoken wake word or in voice, so prefer the description-scoped trigger); **pause
+native memory** so the MCP is the only memory. The detailed skills (`notion-master`, `daily-brief`,
+…) are served **by the MCP** via `get_skill`, so they don't need separate uploads.
 
 ## 🚫 Won't / can't (parity gaps to accept)
 
