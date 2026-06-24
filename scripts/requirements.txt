@@ -1,0 +1,4 @@
+# Deps for get_google_token.py (run locally, not part of the deployed service).
+google-auth-oauthlib>=1.2,<2.0
+google-auth>=2.30,<3.0
+python-dotenv>=1.0,<2.0
