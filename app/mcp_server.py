@@ -35,6 +35,36 @@ INSTRUCTIONS = (
     "before any Notion write, and never overwrite a whole page. Be direct and concise."
 )
 
+# OAuth turns on automatically once a public base URL is known (Railway sets
+# RAILWAY_PUBLIC_DOMAIN; PUBLIC_BASE_URL overrides). claude.ai needs OAuth; without
+# a base URL (local dev) we fall back to the bearer guard below.
+BASE_URL = get_settings().resolved_base_url
+OAUTH_ENABLED = bool(BASE_URL)
+
+_auth_kwargs: dict = {}
+if OAUTH_ENABLED:
+    from mcp.server.auth.settings import (
+        AuthSettings,
+        ClientRegistrationOptions,
+        RevocationOptions,
+    )
+
+    from .mcp_oauth import SCOPES, SingleUserOAuthProvider
+
+    oauth_provider = SingleUserOAuthProvider(lambda: get_settings().service_api_key)
+    _auth_kwargs = dict(
+        auth_server_provider=oauth_provider,
+        auth=AuthSettings(
+            issuer_url=BASE_URL,
+            resource_server_url=f"{BASE_URL}/mcp",
+            required_scopes=SCOPES,
+            client_registration_options=ClientRegistrationOptions(
+                enabled=True, valid_scopes=SCOPES, default_scopes=SCOPES
+            ),
+            revocation_options=RevocationOptions(enabled=True),
+        ),
+    )
+
 mcp = FastMCP(
     name=SERVER_NAME,
     instructions=INSTRUCTIONS,
@@ -45,6 +75,7 @@ mcp = FastMCP(
     # is a public server behind Railway's TLS proxy with its own bearer/OAuth auth, so
     # the default host allowlist would (wrongly) 421 the Railway domain and claude.ai.
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    **_auth_kwargs,
 )
 
 
@@ -372,8 +403,18 @@ def github_merge_pr(owner: str, repo: str, number: int, confirm: bool = False, m
     return _run(go)
 
 
-# ---- the mounted ASGI app + bearer guard ----
+# ---- the mounted ASGI app + auth ----
 mcp_app = mcp.streamable_http_app()  # also creates mcp.session_manager (run in main's lifespan)
+
+# When OAuth is on the SDK adds its endpoints (/authorize, /token, /register,
+# /revoke, /.well-known/*) at the app root. Collect them so main's dispatcher can
+# route those exact paths to the MCP app too (not just /mcp).
+OAUTH_PATHS: set[str] = set()
+if OAUTH_ENABLED:
+    for _route in mcp_app.routes:
+        _p = getattr(_route, "path", None)
+        if _p and _p != "/":
+            OAUTH_PATHS.add(_p)
 
 
 class BearerAuthASGI:
@@ -414,4 +455,7 @@ class BearerAuthASGI:
         return await self.app(scope, receive, send)
 
 
-mcp_asgi = BearerAuthASGI(mcp_app)
+# OAuth on -> the SDK's own middleware enforces auth on /mcp (and the OAuth routes
+# are public), and the provider also accepts the SERVICE_API_KEY as a bearer token,
+# so existing bearer clients keep working. OAuth off -> use the bearer guard.
+mcp_asgi = mcp_app if OAUTH_ENABLED else BearerAuthASGI(mcp_app)

@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 
 from . import __version__
 from .config import get_settings
-from .mcp_server import mcp, mcp_asgi
+from .mcp_server import OAUTH_ENABLED, OAUTH_PATHS, mcp, mcp_asgi
 from .routers import alistair, calendar, github, intray, memory, notion, skill
 from .services import ServiceError
 from .skills import skill_index
@@ -142,7 +142,13 @@ def root() -> dict:
             "endpoint": "/mcp",
             "transport": "streamable-http",
             "server_name": "alistair_assistant",
-            "auth": "Bearer or X-API-Key = SERVICE_API_KEY (OAuth for claude.ai is the next step)",
+            "oauth_enabled": OAUTH_ENABLED,
+            "auth": (
+                "OAuth 2.1 (dynamic client registration, auto-approve) + Bearer/X-API-Key = SERVICE_API_KEY"
+                if OAUTH_ENABLED
+                else "Bearer or X-API-Key = SERVICE_API_KEY (OAuth off — no public base URL set)"
+            ),
+            "oauth_metadata": "/.well-known/oauth-authorization-server" if OAUTH_ENABLED else None,
         },
         "docs": "/docs",
         "manifest": "/api/manifest",
@@ -224,9 +230,10 @@ class _MCPDispatcher:
     the lifespan that runs the MCP session manager — to the FastAPI app.
     """
 
-    def __init__(self, fastapi_app, mcp_app):
+    def __init__(self, fastapi_app, mcp_app, oauth_paths):
         self.fastapi_app = fastapi_app
         self.mcp_app = mcp_app
+        self.oauth_paths = oauth_paths
 
     async def __call__(self, scope, receive, send):
         if scope.get("type") == "http":
@@ -238,8 +245,12 @@ class _MCPDispatcher:
                 inner["raw_path"] = rest.encode()
                 inner["root_path"] = scope.get("root_path", "") + "/mcp"
                 return await self.mcp_app(inner, receive, send)
+            # OAuth discovery/token/register/revoke live at the app root when OAuth
+            # is on; route those exact paths to the MCP app (they are public).
+            if self.oauth_paths and (path in self.oauth_paths or path.startswith("/.well-known/oauth")):
+                return await self.mcp_app(scope, receive, send)
         return await self.fastapi_app(scope, receive, send)
 
 
 # The ASGI callable uvicorn serves (see railway.toml / Procfile: app.main:asgi).
-asgi = _MCPDispatcher(app, mcp_asgi)
+asgi = _MCPDispatcher(app, mcp_asgi, OAUTH_PATHS)
