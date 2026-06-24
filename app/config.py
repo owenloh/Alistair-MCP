@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # ---- Service ----
     railway_env: str = "development"
     service_api_key: str | None = None
+    # Public base URL for the MCP OAuth issuer/metadata. Railway sets
+    # RAILWAY_PUBLIC_DOMAIN automatically; PUBLIC_BASE_URL is an explicit override
+    # (e.g. a custom domain). OAuth is enabled only when one of these resolves.
+    public_base_url: str | None = None
+    railway_public_domain: str | None = None
 
     # ---- Notion ----
     notion_token: str | None = None
@@ -73,6 +78,16 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.railway_env.strip().lower() == "production"
+
+    @property
+    def resolved_base_url(self) -> str | None:
+        """Public https base URL for OAuth metadata, or None (then OAuth is off
+        and the MCP uses the bearer guard). Explicit override wins over Railway's."""
+        if self.public_base_url:
+            return self.public_base_url.rstrip("/")
+        if self.railway_public_domain:
+            return f"https://{self.railway_public_domain.strip().rstrip('/')}"
+        return None
 
     @property
     def github_read_token(self) -> str | None:

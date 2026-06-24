@@ -6,9 +6,9 @@ into the single **Alistair backend**. Last updated 2026-06-24.
 **Agreed build order:**
 **#3 Notion fidelity** (read→100% + write parity + pagination) ✅
 → **#2 memory + coarse tools** ✅
-→ **GitHub read/merge** ✅ built on dev
-→ **#1 MCP wrap** 🔨 transport + 22 tools built on dev; **OAuth** is the one piece left
-→ **claude.ai rollout** (your config).
+→ **GitHub read/merge** ✅ deployed
+→ **#1 MCP wrap** ✅ built (transport + 22 tools + auto-approve OAuth)
+→ **claude.ai rollout** ← your config (steps in `docs/CLAUDE_AI_ROLLOUT.md`).
 
 Legend: ✅ done · 🔨 active · 📋 queued · 🚫 won't / can't · ⚠️ your action
 
@@ -27,7 +27,7 @@ The MCP is the last layer; everything below is the substrate it will expose as t
 | **Memory** — SQLite event-log on a volume, rank→summarise | ✅ **deployed & live-verified** · ⚠️ attach a volume to persist | `app/services/memory.py` + `/api/memory/{save,get,list}`; **44 golden checks**; live save→get→retract round-trip clean. Formula → `docs/MEMORY_FORMULA.md` |
 | **Coarse Alistair tools** — load_context, daily_brief, save_reference, add_action … | ✅ **4 deployed & live-verified** (52 checks) | `POST /api/alistair/{load-context,daily-brief,save-reference,add-action}`. Live: load_context returns the constitution; daily_brief composed 7 projects / 14 next actions / 1 cal event / 1 in-tray; **save_reference dry_run anchored correctly on the real tray** (no write). `get_skill`/`add_to_intray` already exist; `project_context` waits on GitHub #7 |
 | **GitHub** read + merge_pr + project_context | ✅ **built & tested on dev** (49 checks) | 8 read/merge routes + `project_context`; `merge_pr` is preview-unless-`confirm=true`. Needs `GITHUB_REPO_TOKEN` ⚠️ to run live |
-| **MCP wrap** — Streamable-HTTP + OAuth, everything-as-tools | 🔨 **transport + 22 tools built & tested on dev** (45 checks) · OAuth ⚠️ left | `app/mcp_server.py`; `alistair_assistant` mounted at `/mcp`, bearer/X-API-Key auth, persona-loaded tool descriptions. OAuth (claude.ai) is the remaining step |
+| **MCP wrap** — Streamable-HTTP + OAuth, everything-as-tools | ✅ **built & tested** (74 checks) · live-verified bearer; OAuth needs 1 live claude.ai test | `app/mcp_server.py` + `app/mcp_oauth.py`; `alistair_assistant` at `/mcp`, 22 persona-described tools, auto-approve OAuth 2.1 (DCR + PKCE) + SERVICE_API_KEY bearer. Live MCP handshake/tools/memory confirmed on Railway |
 | **claude.ai rollout** config | 📋 queued ⚠️ | steps documented |
 
 **Notion-fidelity milestone (#3): ✅ DONE** — read shipped (34/35 live), write shipped &
@@ -139,8 +139,8 @@ Reference: **`docs/ALISTAIR_MCP_BUILD_SPEC.md`**. Key constraints:
 | --- | --- |
 | FastAPI → MCP (official `mcp` SDK FastMCP), **Streamable HTTP**, mounted at `/mcp` | ✅ **built & tested on dev** — `alistair_assistant`, stateless+JSON responses, DNS-rebinding protection off (public server), boots + does the initialize handshake (protocol 2025-06-18) |
 | Tools wired (domain + persona + memory) with persona descriptions | ✅ **built & tested on dev** — **22 tools** (load_context, get/save_memory, get_skill, daily_brief, project_context, save_reference, add_action, notion_*, calendar_*, intray, github_*), each Alistair-voiced; safety hooks duplicated into descriptions; all in-process over the existing services. **45 checks.** |
-| **OAuth** (claude.ai custom-connector requirement) | ⚠️ **the one piece left.** Interim **bearer/X-API-Key** guard works today for Claude Desktop/Code, Cursor, the Pipecat voice shell and Gemini CLI. claude.ai needs OAuth 2.1 + dynamic client registration; approach is a decision (auto-approve single-user vs proxy to Google). |
-| Hand you the `/mcp` URL + auth | ⏳ after deploy: `https://<railway-host>/mcp`, `Authorization: Bearer <SERVICE_API_KEY>` |
+| **OAuth** (claude.ai custom-connector requirement) | ✅ **built & tested** (22 checks) — `app/mcp_oauth.py`: single-user **auto-approve** OAuth 2.1, open **dynamic client registration**, **PKCE** enforced, refresh tokens, and the static **SERVICE_API_KEY** also accepted as a bearer. Auto-enables when a public base URL resolves (Railway `RAILWAY_PUBLIC_DOMAIN`, or set `PUBLIC_BASE_URL`). Discovery at `/.well-known/oauth-authorization-server` + `/.well-known/oauth-protected-resource/mcp`. **Needs one live claude.ai connect test** (can't reach claude.ai from here). |
+| Hand you the `/mcp` URL + auth | ✅ `https://<railway-host>/mcp` — claude.ai uses OAuth (auto-discovered); other clients send `Authorization: Bearer <SERVICE_API_KEY>`. Full steps in **`docs/CLAUDE_AI_ROLLOUT.md`**. |
 
 **claude.ai rollout — ⚠️ your action (I'll document the exact steps):** add the Alistair MCP
 as a custom connector; **do not enable** the official Notion/Todoist connectors; upload **one**
