@@ -41,6 +41,9 @@ class SearchRequest(BaseModel):
 class FetchRequest(BaseModel):
     id: str
     include_discussions: bool = False
+    # Pagination for long pages: pass next_cursor back as start_cursor to read on.
+    start_cursor: str | None = None
+    page_size: int = 100
 
 
 class PageSpec(BaseModel):

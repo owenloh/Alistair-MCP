@@ -28,9 +28,14 @@ from ..config import Settings
 API = "https://api.notion.com/v1/"
 _TIMEOUT = httpx.Timeout(40.0)
 
-# Caps so a fetch of a huge page can't blow up the response.
-_MAX_CHILD_DEPTH = 2
-_MAX_TOTAL_BLOCKS = 300
+# Caps so a single fetch response can't blow up. op_fetch now paginates top-level
+# blocks (start_cursor/next_cursor), so the FULL page is always retrievable across
+# calls — these only bound ONE response. _MAX_TOTAL_BLOCKS is a high safety net
+# against a single deeply-nested top-level block exploding; depth covers Owen's
+# deep toggle/column nesting.
+_MAX_CHILD_DEPTH = 6
+_MAX_TOTAL_BLOCKS = 5000
+_TRUNC = "<!-- truncated: response cap reached; re-fetch with start_cursor -->"
 
 NEXT_PROJECT_STATUSES = {"Active", "Complete"}
 
@@ -242,34 +247,110 @@ def page_title(page: dict) -> str:
 # ---------------------------------------------------------------------------
 _INLINE_RE = re.compile(
     r"(\*\*(?P<bold>.+?)\*\*)"
+    r"|(~~(?P<strike>.+?)~~)"
     r"|(?<!\*)\*(?P<italic>[^*]+?)\*(?!\*)"
     r"|(`(?P<code>[^`]+?)`)"
     r"|(\[(?P<ltext>[^\]]+?)\]\((?P<lurl>[^)]+?)\))"
 )
+_MATH_RE = re.compile(r"\$`(?P<math>[^`]+?)`\$")
+_MENTION_RE = re.compile(
+    r'<mention-(?P<mkind>page|database|user)(?:\s+url="(?P<murl>[^"]*)")?>'
+    r'(?P<mlabel>.*?)</mention-(?P=mkind)>'
+)
+_ESC_RE = re.compile(r"\\([\\`*\[\]<>|$~])")
+_PLACEHOLDER_RE = re.compile(r"(\x00\d+\x00)")  # capturing group so split keeps the markers
 
 
 def _inline_to_rich(text: str) -> list[dict]:
-    """Parse a subset of inline markdown (**bold**, *italic*, `code`, [t](url))."""
+    """Parse connector-style inline markdown into a rich_text array.
+
+    Handles **bold**, *italic*, ~~strike~~, `code`, [t](url), inline math
+    $`expr`$, page/database mentions, and backslash escapes (\\* \\< \\` …) so a
+    round-trip through the renderer is loss-free.
+    """
+    stash: dict[str, dict] = {}
+
+    def _put(obj: dict) -> str:
+        key = f"\x00{len(stash)}\x00"
+        stash[key] = obj
+        return key
+
+    # Protect equations, mentions and escaped chars as opaque placeholders so the
+    # bold/italic/link pass below can't misinterpret their contents.
+    text = _MATH_RE.sub(lambda m: _put({"type": "equation", "equation": {"expression": m.group("math")}}), text)
+    text = _MENTION_RE.sub(lambda m: _put(_mention_obj(m.group("mkind"), m.group("murl"), m.group("mlabel"))), text)
+    text = _ESC_RE.sub(lambda m: _put({"_literal": m.group(1)}), text)
+
     out: list[dict] = []
     pos = 0
     for m in _INLINE_RE.finditer(text):
         if m.start() > pos:
-            out.append(_text_obj(text[pos:m.start()]))
+            _emit_inline(out, text[pos:m.start()], stash)
         if m.group("bold") is not None:
-            out.append(_text_obj(m.group("bold"), bold=True))
+            _emit_inline(out, m.group("bold"), stash, bold=True)
+        elif m.group("strike") is not None:
+            _emit_inline(out, m.group("strike"), stash, strikethrough=True)
         elif m.group("italic") is not None:
-            out.append(_text_obj(m.group("italic"), italic=True))
+            _emit_inline(out, m.group("italic"), stash, italic=True)
         elif m.group("code") is not None:
-            out.append(_text_obj(m.group("code"), code=True))
+            _emit_inline(out, m.group("code"), stash, code=True)
         elif m.group("ltext") is not None:
-            out.append(_text_obj(m.group("ltext"), link=m.group("lurl")))
+            _emit_inline(out, m.group("ltext"), stash, link=m.group("lurl"))
         pos = m.end()
     if pos < len(text):
-        out.append(_text_obj(text[pos:]))
+        _emit_inline(out, text[pos:], stash)
     return out or [_text_obj("")]
 
 
-def _text_obj(content: str, bold=False, italic=False, code=False, link: str | None = None) -> dict:
+def _emit_inline(out: list[dict], seg: str, stash: dict[str, dict], **ann) -> None:
+    """Emit a text segment, restoring stashed equation/mention/literal placeholders.
+
+    Literals merge into the surrounding annotated text; equations/mentions become
+    their own tokens (annotations don't apply to them in Notion).
+    """
+    if not seg:
+        return
+    buf = ""
+
+    def flush() -> None:
+        nonlocal buf
+        if buf:
+            out.append(_text_obj(buf, **ann))
+            buf = ""
+
+    for part in _PLACEHOLDER_RE.split(seg):
+        obj = stash.get(part)
+        if obj is None:
+            buf += part
+        elif "_literal" in obj:
+            buf += obj["_literal"]
+        else:
+            flush()
+            out.append(obj)
+    flush()
+
+
+def _mention_obj(kind: str, url: str | None, label: str) -> dict:
+    """Build a Notion mention rich_text object, falling back to plain text."""
+    rid = _id_from_url(url) if url else None
+    if kind == "page" and rid:
+        return {"type": "mention", "mention": {"type": "page", "page": {"id": rid}}}
+    if kind == "database" and rid:
+        return {"type": "mention", "mention": {"type": "database", "database": {"id": rid}}}
+    # User mentions can't be reconstructed from a label (no id); keep the text.
+    return _text_obj(label)
+
+
+def _id_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    try:
+        return extract_id(url)
+    except ServiceError:
+        return None
+
+
+def _text_obj(content: str, bold=False, italic=False, code=False, strikethrough=False, link: str | None = None) -> dict:
     ann = {}
     if bold:
         ann["bold"] = True
@@ -277,6 +358,8 @@ def _text_obj(content: str, bold=False, italic=False, code=False, link: str | No
         ann["italic"] = True
     if code:
         ann["code"] = True
+    if strikethrough:
+        ann["strikethrough"] = True
     obj: dict = {"type": "text", "text": {"content": content}}
     if link:
         obj["text"]["link"] = {"url": link}
@@ -312,10 +395,19 @@ def markdown_to_blocks(md: str) -> list[dict]:
             i += 1
             continue
 
-        if stripped in ("---", "***", "___"):
+        if stripped == "<empty-block/>":
+            blocks.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": []}})
+        elif re.match(r"^!\[[^\]]*\]\(([^)]*)\)$", stripped):
+            url = re.match(r"^!\[[^\]]*\]\(([^)]*)\)$", stripped).group(1)
+            if url:
+                blocks.append({"object": "block", "type": "image",
+                               "image": {"type": "external", "external": {"url": url}}})
+            else:
+                blocks.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": []}})
+        elif stripped in ("---", "***", "___"):
             blocks.append({"object": "block", "type": "divider", "divider": {}})
         elif stripped.startswith("#### "):
-            blocks.append(_heading(3, stripped[5:]))
+            blocks.append(_heading(4, stripped[5:]))
         elif stripped.startswith("### "):
             blocks.append(_heading(3, stripped[4:]))
         elif stripped.startswith("## "):
@@ -358,17 +450,114 @@ def _heading(level: int, text: str) -> dict:
     return {"object": "block", "type": key, key: {"rich_text": _inline_to_rich(text)}}
 
 
+def rich_text_md(rich: list[dict] | None) -> str:
+    """Render a rich_text array to Notion-flavored inline markdown.
+
+    Mirrors the connector: **bold**, *italic*, ~~strike~~, `code`, [text](url),
+    inline equations as $`expr`$, and page/database/user mentions. Literal text is
+    escaped (\\* \\< \\` …) so it round-trips through _inline_to_rich.
+    """
+    if not rich:
+        return ""
+    out: list[str] = []
+    for t in rich:
+        ttype = t.get("type")
+        if ttype == "equation":
+            expr = (t.get("equation") or {}).get("expression") or t.get("plain_text", "")
+            out.append(f"$`{expr}`$")
+            continue
+        if ttype == "mention":
+            out.append(_mention_md(t))
+            continue
+        raw = t.get("plain_text", "")
+        if raw == "":
+            continue
+        ann = t.get("annotations") or {}
+        if ann.get("code"):
+            # Code spans are literal — wrap raw, don't markdown-escape inside.
+            content = f"`{raw}`"
+        else:
+            content = _escape_md(raw)
+            if ann.get("bold"):
+                content = f"**{content}**"
+            if ann.get("italic"):
+                content = f"*{content}*"
+            if ann.get("strikethrough"):
+                content = f"~~{content}~~"
+        text_obj = t.get("text") if isinstance(t.get("text"), dict) else {}
+        link = (text_obj or {}).get("link")
+        href = link.get("url") if isinstance(link, dict) else None
+        if href:
+            content = f"[{content}]({href})"
+        out.append(content)
+    return "".join(out)
+
+
+_MD_ESCAPE_RE = re.compile(r"([\\`*\[\]<>|$~])")
+
+
+def _escape_md(text: str) -> str:
+    """Escape connector-significant characters in literal text for loss-free round-trip."""
+    return _MD_ESCAPE_RE.sub(r"\\\1", text)
+
+
+def _notion_url(nid: str | None) -> str:
+    raw = (nid or "").replace("-", "")
+    return f"https://www.notion.so/{raw}" if raw else ""
+
+
+def _mention_md(token: dict) -> str:
+    """Render a mention rich_text token to the connector's <mention-*> syntax."""
+    m = token.get("mention") or {}
+    mtype = m.get("type")
+    label = token.get("plain_text", "")
+    if mtype == "page":
+        return f'<mention-page url="{_notion_url((m.get("page") or {}).get("id"))}">{label}</mention-page>'
+    if mtype == "database":
+        return f'<mention-database url="{_notion_url((m.get("database") or {}).get("id"))}">{label}</mention-database>'
+    if mtype == "user":
+        return f"<mention-user>{label}</mention-user>"
+    if mtype == "date":
+        return label or (m.get("date") or {}).get("start", "")
+    return label
+
+
+def _file_url(data: dict) -> str:
+    for k in ("external", "file"):
+        u = (data.get(k) or {}).get("url")
+        if u:
+            return u
+    return ""
+
+
+def _block_url(block: dict) -> str:
+    return _notion_url(block.get("id"))
+
+
+def _callout_open(data: dict) -> str:
+    attrs = ""
+    icon = data.get("icon") or {}
+    if icon.get("type") == "emoji" and icon.get("emoji"):
+        attrs += f' icon="{icon["emoji"]}"'
+    color = data.get("color")
+    if color and color != "default":
+        attrs += f' color="{color.replace("_background", "_bg")}"'
+    return f"<callout{attrs}>"
+
+
 def block_to_markdown(block: dict) -> str:
-    """Render a single block to a markdown-ish line (for fetch + anchor matching)."""
+    """Render a single (non-container) block to a connector-style markdown line.
+
+    Container blocks (toggle, callout, column_list, column) are handled in
+    render_blocks because they wrap their children; this covers leaf blocks.
+    """
     t = block.get("type", "")
     data = block.get(t, {})
-    text = rich_text_plain(data.get("rich_text")) if isinstance(data, dict) else ""
-    if t == "heading_1":
-        return f"# {text}"
-    if t == "heading_2":
-        return f"## {text}"
-    if t == "heading_3":
-        return f"### {text}"
+    if not isinstance(data, dict):
+        data = {}
+    text = rich_text_md(data.get("rich_text"))
+    if t in ("heading_1", "heading_2", "heading_3", "heading_4"):
+        return f"{'#' * int(t.split('_')[1])} {text}"
     if t == "bulleted_list_item":
         return f"- {text}"
     if t == "numbered_list_item":
@@ -378,43 +567,152 @@ def block_to_markdown(block: dict) -> str:
     if t == "quote":
         return f"> {text}"
     if t == "code":
-        return f"```\n{text}\n```"
+        lang = data.get("language") or "plain text"
+        return f"```{lang}\n{rich_text_plain(data.get('rich_text'))}\n```"
     if t == "divider":
         return "---"
+    if t == "equation":
+        return f"$$\n{data.get('expression', '')}\n$$"
+    if t == "image":
+        return f"![]({_file_url(data)})"
+    if t in ("video", "audio", "file", "pdf"):
+        url = _file_url(data)
+        label = rich_text_plain(data.get("caption")) or data.get("name") or t
+        return f"[{label}]({url})" if url else ""
+    if t in ("bookmark", "embed", "link_preview"):
+        url = data.get("url", "")
+        label = rich_text_plain(data.get("caption")) or url
+        return f"[{label}]({url})" if url else ""
+    if t == "link_to_page":
+        ref = data.get("page_id") or data.get("database_id")
+        return f'<page url="{_notion_url(ref)}"></page>'
     if t == "child_page":
-        return f"[child page: {data.get('title', '')}]"
+        return f'<page url="{_block_url(block)}">{data.get("title", "")}</page>'
     if t == "child_database":
-        return f"[child database: {data.get('title', '')}]"
+        return f'<database url="{_block_url(block)}">{data.get("title", "")}</database>'
+    if t in ("table_of_contents", "breadcrumb"):
+        return ""
+    if t == "paragraph":
+        return text if text else "<empty-block/>"
     return text
 
 
+def _render_children(client: NotionClient, blk: dict, depth: int, counter: dict, flat: list[dict]) -> str:
+    sub_md, sub_flat = render_blocks(client, blk["id"], depth + 1, counter)
+    flat.extend(sub_flat)
+    return sub_md
+
+
+def _render_one(client: NotionClient, blk: dict, depth: int, counter: dict,
+                md_parts: list[str], flat: list[dict]) -> None:
+    """Render one block (and its children) into md_parts/flat, connector-style.
+
+    toggle -> <details>/<summary>, callout -> <callout>, columns ->
+    <columns>/<column>, table -> <table>/<tr><td>, synced_block -> transparent,
+    everything else through block_to_markdown. Child content is tab-indented.
+    """
+    counter["n"] += 1
+    t = blk.get("type")
+    data = blk.get(t, {})
+    if not isinstance(data, dict):
+        data = {}
+    flat.append({
+        "id": blk["id"],
+        "type": t,
+        "text": rich_text_plain(data.get("rich_text")),
+        "has_children": blk.get("has_children", False),
+    })
+    has_kids = bool(blk.get("has_children")) and depth < _MAX_CHILD_DEPTH
+
+    if t == "toggle":
+        md_parts.append("<details>")
+        md_parts.append(f"<summary>{rich_text_md(data.get('rich_text'))}</summary>")
+        if has_kids:
+            sub = _render_children(client, blk, depth, counter, flat)
+            if sub:
+                md_parts.append(_indent(sub))
+        md_parts.append("</details>")
+    elif t == "callout":
+        md_parts.append(_callout_open(data))
+        body = rich_text_md(data.get("rich_text"))
+        if body:
+            md_parts.append(_indent(body))
+        if has_kids:
+            sub = _render_children(client, blk, depth, counter, flat)
+            if sub:
+                md_parts.append(_indent(sub))
+        md_parts.append("</callout>")
+    elif t in ("column_list", "column"):
+        tag = "columns" if t == "column_list" else "column"
+        md_parts.append(f"<{tag}>")
+        if has_kids:
+            sub = _render_children(client, blk, depth, counter, flat)
+            if sub:
+                md_parts.append(_indent(sub))
+        md_parts.append(f"</{tag}>")
+    elif t == "table":
+        header = "true" if data.get("has_column_header") else "false"
+        md_parts.append(f'<table header-row="{header}">')
+        if has_kids:
+            for row in client.block_children_all(blk["id"]):
+                if counter["n"] >= _MAX_TOTAL_BLOCKS:
+                    break
+                if row.get("type") != "table_row":
+                    continue
+                counter["n"] += 1
+                cells = (row.get("table_row") or {}).get("cells", [])
+                tds = "".join(f"<td>{rich_text_md(cell)}</td>" for cell in cells)
+                md_parts.append(f"<tr>{tds}</tr>")
+        md_parts.append("</table>")
+    elif t == "synced_block":
+        # Synced content renders transparently (no wrapper), like the connector.
+        if has_kids:
+            sub = _render_children(client, blk, depth, counter, flat)
+            if sub:
+                md_parts.append(sub)
+    else:
+        line = block_to_markdown(blk)
+        if line:
+            md_parts.append(line)
+        if has_kids and t not in ("child_page", "child_database"):
+            sub = _render_children(client, blk, depth, counter, flat)
+            if sub:
+                md_parts.append(_indent(sub))
+
+
 def render_blocks(client: NotionClient, block_id: str, depth: int, counter: dict) -> tuple[str, list[dict]]:
-    """Recursively render block children to (markdown, flat block list with ids)."""
+    """Render ALL children of block_id to (markdown, flat list). Used by writes."""
     md_parts: list[str] = []
     flat: list[dict] = []
     for blk in client.block_children_all(block_id):
         if counter["n"] >= _MAX_TOTAL_BLOCKS:
-            md_parts.append("\n_(truncated: page has more blocks)_")
+            md_parts.append(_TRUNC)
             break
-        counter["n"] += 1
-        line = block_to_markdown(blk)
-        md_parts.append(line)
-        flat.append({
-            "id": blk["id"],
-            "type": blk.get("type"),
-            "text": rich_text_plain((blk.get(blk.get("type"), {}) or {}).get("rich_text")) if isinstance(blk.get(blk.get("type")), dict) else "",
-            "has_children": blk.get("has_children", False),
-        })
-        if blk.get("has_children") and depth < _MAX_CHILD_DEPTH and blk.get("type") not in ("child_page", "child_database"):
-            sub_md, sub_flat = render_blocks(client, blk["id"], depth + 1, counter)
-            if sub_md:
-                md_parts.append(_indent(sub_md))
-            flat.extend(sub_flat)
+        _render_one(client, blk, depth, counter, md_parts, flat)
     return "\n".join(md_parts), flat
 
 
+def render_page(client: NotionClient, block_id: str, start_cursor: str | None,
+                page_size: int, counter: dict) -> tuple[str, list[dict], str | None]:
+    """Render ONE page of top-level blocks (children fully expanded) for fetch.
+
+    Returns (markdown, flat, next_cursor); next_cursor is None when no more
+    top-level blocks remain, so the caller pages until it is None to read it all.
+    """
+    md_parts: list[str] = []
+    flat: list[dict] = []
+    data = client.block_children(block_id, page_size=page_size, start_cursor=start_cursor)
+    for blk in data.get("results", []):
+        if counter["n"] >= _MAX_TOTAL_BLOCKS:
+            md_parts.append(_TRUNC)
+            break
+        _render_one(client, blk, 0, counter, md_parts, flat)
+    next_cursor = data.get("next_cursor") if data.get("has_more") else None
+    return "\n".join(md_parts), flat, next_cursor
+
+
 def _indent(text: str) -> str:
-    return "\n".join("    " + ln for ln in text.split("\n"))
+    return "\n".join("\t" + ln for ln in text.split("\n"))
 
 
 # ---------------------------------------------------------------------------
@@ -552,7 +850,8 @@ def op_search(settings: Settings, *, query: str, query_type: str = "internal",
                 "note": "Backed by Notion REST search (Notion content, title/relevance ranked)."}
 
 
-def op_fetch(settings: Settings, *, id: str, include_discussions: bool = False, **_ignored) -> dict:
+def op_fetch(settings: Settings, *, id: str, include_discussions: bool = False,
+             start_cursor: str | None = None, page_size: int = 100, **_ignored) -> dict:
     nid = extract_id(id)
     with NotionClient(settings) as c:
         # Try page first, then database.
@@ -562,7 +861,7 @@ def op_fetch(settings: Settings, *, id: str, include_discussions: bool = False, 
             page = None
         if page and page.get("object") == "page":
             counter = {"n": 0}
-            md, flat = render_blocks(c, nid, 0, counter)
+            md, flat, next_cursor = render_page(c, nid, start_cursor, min(max(page_size, 1), 100), counter)
             return {
                 "object": "page",
                 "id": nid,
@@ -571,6 +870,9 @@ def op_fetch(settings: Settings, *, id: str, include_discussions: bool = False, 
                 "properties": flatten_properties(page.get("properties", {})),
                 "content_markdown": md,
                 "blocks": flat,
+                # Long pages page in: if has_more, re-fetch with start_cursor=next_cursor.
+                "has_more": next_cursor is not None,
+                "next_cursor": next_cursor,
             }
         db = c.retrieve_database(nid)
         return {
