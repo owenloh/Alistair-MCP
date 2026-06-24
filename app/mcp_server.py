@@ -390,6 +390,13 @@ class BearerAuthASGI:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
+        # Mounted at /mcp: a request to exactly "/mcp" arrives here with path "".
+        # Normalize to "/" so the inner app matches its route directly instead of
+        # issuing a trailing-slash 307 — that redirect also downgrades https->http
+        # behind Railway's TLS proxy, which breaks clients (and claude.ai).
+        if scope.get("path") in ("", None):
+            scope = dict(scope)
+            scope["path"] = "/"
         expected = get_settings().service_api_key
         if expected:
             headers = dict(scope.get("headers") or [])

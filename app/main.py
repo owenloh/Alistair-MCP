@@ -103,10 +103,6 @@ app.include_router(alistair.router)
 # Skills (description APIs)
 app.include_router(skill.router)
 
-# Remote MCP (Streamable-HTTP) — the same tools for claude.ai / Gemini / voice.
-# Bearer/X-API-Key guarded; endpoint is exactly /mcp (server name: alistair_assistant).
-app.mount("/mcp", mcp_asgi)
-
 
 @app.exception_handler(ServiceError)
 def handle_service_error(request: Request, exc: ServiceError) -> JSONResponse:
@@ -216,3 +212,34 @@ def manifest() -> dict:
         "description_apis": description_apis,
         "counts": counts,
     }
+
+
+class _MCPDispatcher:
+    """Serve the MCP at EXACTLY /mcp (and /mcp/...) with no trailing-slash redirect.
+
+    A Starlette mount would 307 "/mcp" -> "/mcp/", and behind Railway's TLS proxy
+    that Location is built as http:// (scheme downgrade) which breaks MCP clients.
+    This top-level ASGI shim routes /mcp* straight to the MCP app (rewriting the
+    path so its single "/" route matches) and forwards everything else — including
+    the lifespan that runs the MCP session manager — to the FastAPI app.
+    """
+
+    def __init__(self, fastapi_app, mcp_app):
+        self.fastapi_app = fastapi_app
+        self.mcp_app = mcp_app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http":
+            path = scope.get("path", "")
+            if path == "/mcp" or path.startswith("/mcp/"):
+                inner = dict(scope)
+                rest = path[len("/mcp"):] or "/"
+                inner["path"] = rest
+                inner["raw_path"] = rest.encode()
+                inner["root_path"] = scope.get("root_path", "") + "/mcp"
+                return await self.mcp_app(inner, receive, send)
+        return await self.fastapi_app(scope, receive, send)
+
+
+# The ASGI callable uvicorn serves (see railway.toml / Procfile: app.main:asgi).
+asgi = _MCPDispatcher(app, mcp_asgi)
