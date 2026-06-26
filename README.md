@@ -17,13 +17,13 @@ behaviour, without the connectors.
 
 | Layer | What it is | Endpoints |
 |-------|-----------|-----------|
-| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/intray` (1), `/api/github/*` (9), `/api/memory/*` (3), `/api/alistair/*` (5) |
+| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/intray` (1), `/api/github/*` (11), `/api/memory/*` (3), `/api/alistair/*` (5) |
 | **Description APIs** | Skills that tell Claude *what to do* (no code) | `/api/skill/{notion-master \| daily-brief \| notion-references-tray \| microsoft-todo-intray \| gmail}` (also via the MCP `get_skill` tool) |
 | **Manifest** | The catalogue of everything | `GET /api/manifest`, plus `/docs` and `/openapi.json` |
 
-So it is **~50 endpoints** — five "connectors" (Notion, Calendar, Gmail, in-tray,
+So it is **~55 endpoints** — five "connectors" (Notion, Calendar, Gmail, in-tray,
 GitHub) that each contain many tool-APIs, plus the persona/memory layer, the skill
-description-APIs, and discovery. The high-value subset is also exposed as **26 MCP
+description-APIs, and discovery. The high-value subset is also exposed as **37 MCP
 tools** on `alistair_assistant`.
 
 ### Notion function APIs (`/api/notion/*`)
@@ -81,7 +81,8 @@ All secrets come from env vars only (see `.env.example`). Nothing is hardcoded.
 | `GOOGLE_CALENDAR_ID`, `TIMEZONE`, `TIMEZONE_AUTO` | Calendar | `primary`; `TIMEZONE` is the home/fallback zone (`Europe/London`; `CALENDAR_TIMEZONE` alias). With `TIMEZONE_AUTO=true` (default) the service auto-detects your **current** Google Calendar timezone each call so it follows you when travelling (also surfaced in `load_context.now`); a per-call `timeZone` arg always overrides. |
 | Google scopes | Calendar + Gmail | Calendar read **+ write** needs `…/auth/calendar`; Gmail read + draft needs `gmail.readonly` + `gmail.compose`. Mint a token covering both with `scripts/get_google_token.py`, then set `GOOGLE_REFRESH_TOKEN`. |
 | `MS_CLIENT_ID`, `MS_TODO_LIST_ID`, `MS_TENANT` | In-tray | Azure public-client id; the in-tray list id; `consumers` for personal MS accounts. |
-| `GITHUB_GIST_TOKEN`, `GIST_ID`, `GIST_FILENAME` | In-tray + GitHub | Classic PAT (`gist` scope); private gist storing the MS refresh token. |
+| `GITHUB_GIST_TOKEN`, `GIST_ID`, `GIST_FILENAME` | In-tray + GitHub | Classic PAT (`gist` scope); private gist storing the MS refresh token. Also the fallback for the read/merge tools if `GITHUB_REPO_TOKEN` is unset. |
+| `GITHUB_REPO_TOKEN` | GitHub | Repo read + PR token, **distinct** from the gist token. Powers `whoami`/`list-my-repos` (account-aware: reports the account it belongs to and enumerates the repos it can reach, public + private) and the read/`merge-pr` tools. Scope is the token's — a fine-grained PAT only sees what you grant it; a classic `repo`-scope PAT sees everything the account can. Falls back to `GITHUB_GIST_TOKEN`. |
 | `SERVICE_API_KEY` | All `/api/*` | Optional. If set, every call must send `X-API-Key`. |
 | `RAILWAY_ENV` | Service | `production` on Railway. |
 

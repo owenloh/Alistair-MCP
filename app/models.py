@@ -59,6 +59,19 @@ class ListTreeRequest(_RepoRequest):
     recursive: bool = Field(default=True, description="Recurse into all subdirectories.")
 
 
+class ListMyReposRequest(BaseModel):
+    """Body for POST /api/github/list-my-repos (the account-aware enumeration)."""
+
+    visibility: Literal["all", "public", "private"] = "all"
+    affiliation: str | None = Field(
+        default=None,
+        description="Optional comma-separated affiliations: owner,collaborator,"
+        "organization_member. Defaults to all three.",
+    )
+    sort: Literal["created", "updated", "pushed", "full_name"] = "pushed"
+    limit: int = Field(default=30, ge=1, le=100)
+
+
 class SearchCodeRequest(BaseModel):
     query: str = Field(description="Code search query (GitHub code-search syntax).")
     owner: str | None = Field(default=None, description="Scope to this owner (user/org).")

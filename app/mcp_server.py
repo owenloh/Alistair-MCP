@@ -465,6 +465,38 @@ def _gh_token() -> str:
 
 
 @mcp.tool(
+    name="github_whoami",
+    description="Identify the GitHub account Alistair's token belongs to: login, name, type and "
+    "repo counts (including how many private repos the token can reach). Read-only — answers "
+    "'what's my GitHub account' / 'who am I on GitHub' / 'which account are you acting as'.",
+)
+def github_whoami() -> dict:
+    from .services.github import GitHubClient
+
+    def go():
+        with GitHubClient(_gh_token()) as gh:
+            return gh.get_authenticated_user()
+    return _run(go)
+
+
+@mcp.tool(
+    name="github_list_my_repos",
+    description="List Owen's GitHub repos — every repository the token can reach, public AND "
+    "private, most-recently-active first. Read-only. Use this to discover owner/repo before the "
+    "per-repo tools (no need to know the name up front). visibility is all|public|private; "
+    "affiliation optionally filters owner|collaborator|organization_member.",
+)
+def github_list_my_repos(visibility: str = "all", affiliation: str | None = None,
+                         sort: str = "pushed", limit: int = 30) -> dict:
+    from .services.github import GitHubClient
+
+    def go():
+        with GitHubClient(_gh_token()) as gh:
+            return gh.list_my_repos(visibility, affiliation, sort, limit)
+    return _run(go)
+
+
+@mcp.tool(
     name="github_get_file",
     description="Read one UTF-8 file from a GitHub repo (owner/repo/path, optional ref). Read-only.",
 )

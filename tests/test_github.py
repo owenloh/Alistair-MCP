@@ -75,6 +75,36 @@ try:
 except ServiceError as e:
     check("get_file binary -> 415", e.status_code == 415)
 
+# === get_authenticated_user: account identity + private counts surfaced ===
+gh = mk([("GET", "/user", 200,
+         {"login": "owenloh", "name": "Owen", "id": 42, "type": "User", "html_url": "u",
+          "public_repos": 7, "total_private_repos": 3, "owned_private_repos": 2,
+          "plan": {"name": "pro"}})])
+me = gh.get_authenticated_user()
+check("whoami login", me["login"] == "owenloh")
+check("whoami surfaces private repo count", me["total_private_repos"] == 3)
+check("whoami flattens plan name", me["plan"] == "pro")
+
+# === list_my_repos: enumerates + flattens shape + default params ===
+gh = mk([("GET", "/user/repos", 200, [
+    {"full_name": "owenloh/alistair-mcp", "private": True, "fork": False, "archived": False,
+     "description": "d", "language": "Python", "default_branch": "main",
+     "pushed_at": "2026-01-01T00:00:00Z", "html_url": "u"},
+    {"full_name": "owenloh/public-thing", "private": False, "html_url": "u2"}])])
+mr = gh.list_my_repos()
+check("list_my_repos count", mr["count"] == 2)
+check("list_my_repos includes private repo", mr["repos"][0]["private"] is True)
+check("list_my_repos keeps full_name", mr["repos"][0]["full_name"] == "owenloh/alistair-mcp")
+check("list_my_repos defaults visibility=all + sort=pushed",
+      gh._client.calls[-1][2]["visibility"] == "all" and gh._client.calls[-1][2]["sort"] == "pushed")
+
+# affiliation is forwarded only when given
+gh = mk([("GET", "/user/repos", 200, [])])
+gh.list_my_repos(visibility="private", affiliation="owner", sort="updated", limit=5)
+_p = gh._client.calls[-1][2]
+check("list_my_repos forwards affiliation/visibility/sort",
+      _p["affiliation"] == "owner" and _p["visibility"] == "private" and _p["sort"] == "updated")
+
 # === list_tree: explicit ref skips the default-branch lookup ===
 gh = mk([("GET", "/git/trees/main", 200,
          {"truncated": False, "tree": [
@@ -229,6 +259,10 @@ c = TestClient(app)
 
 gf = c.post("/api/github/get-file", json={"owner": "o", "repo": "r", "path": "README.md"})
 check("get-file 503 without token", gf.status_code == 503)
+wai = c.post("/api/github/whoami", json={})
+check("whoami 503 without token", wai.status_code == 503)
+lmr = c.post("/api/github/list-my-repos", json={})
+check("list-my-repos 503 without token", lmr.status_code == 503)
 mp = c.post("/api/github/merge-pr", json={"owner": "o", "repo": "r", "number": 1})
 check("merge-pr 503 without token", mp.status_code == 503)
 pcx = c.post("/api/alistair/project-context", json={"owner": "o", "repo": "r"})
@@ -239,11 +273,13 @@ bad = c.post("/api/github/merge-pr", json={"owner": "o", "repo": "r"})  # missin
 check("merge-pr validates body (422)", bad.status_code == 422)
 
 mani = c.get("/api/manifest").json()
-check("manifest github has 9 tools", mani["counts"].get("github") == 9)
+check("manifest github has 11 tools", mani["counts"].get("github") == 11)
 check("manifest alistair has 5 tools", mani["counts"].get("alistair") == 5)
 names = [t["path"] for t in mani["function_apis"]["github"]]
 check("manifest lists merge-pr", "/api/github/merge-pr" in names)
 check("manifest lists get-file", "/api/github/get-file" in names)
+check("manifest lists whoami", "/api/github/whoami" in names)
+check("manifest lists list-my-repos", "/api/github/list-my-repos" in names)
 merge_desc = next(t["description"] for t in mani["function_apis"]["github"] if t["path"] == "/api/github/merge-pr")
 check("merge-pr description warns about confirm", "confirm=true" in merge_desc)
 root = c.get("/").json()

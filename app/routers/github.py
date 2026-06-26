@@ -14,6 +14,7 @@ from ..models import (
     GetFileRequest,
     GetPullRequest,
     ListIssuesRequest,
+    ListMyReposRequest,
     ListPullsRequest,
     ListTreeRequest,
     MergePullRequest,
@@ -61,6 +62,31 @@ def _read_token() -> str:
             "GITHUB_REPO_TOKEN (or GITHUB_GIST_TOKEN) is not configured.", status_code=503
         )
     return token
+
+
+@router.post(
+    "/whoami",
+    summary="Identify the GitHub account behind the token",
+    description="Return the authenticated GitHub account the configured token belongs to "
+    "(login, name, type, repo counts including private). Read-only. Answers 'what is my "
+    "GitHub account' and confirms which account/permissions Alistair is acting as.",
+)
+def whoami() -> dict:
+    with GitHubClient(_read_token()) as gh:
+        return gh.get_authenticated_user()
+
+
+@router.post(
+    "/list-my-repos",
+    summary="List the repos the token can access",
+    description="Enumerate the repositories the configured token can reach — public AND "
+    "private — most-recently-active first. Read-only. This is the discovery step "
+    "/get-file etc. can't do on their own. visibility is all|public|private; affiliation "
+    "optionally filters owner/collaborator/organization_member.",
+)
+def list_my_repos(body: ListMyReposRequest) -> dict:
+    with GitHubClient(_read_token()) as gh:
+        return gh.list_my_repos(body.visibility, body.affiliation, body.sort, body.limit)
 
 
 @router.post(

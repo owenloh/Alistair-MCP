@@ -160,6 +160,65 @@ class GitHubClient:
             return base64.b64decode(raw).decode("utf-8")  # may raise; callers handle
         return raw
 
+    # ---- account (who the token belongs to) ----
+    def get_authenticated_user(self) -> dict:
+        """Identify the account behind the configured token (GitHub GET /user).
+
+        Read-only. This is the authenticated view, not the public /users/{login}
+        one, so the private-repo counts are visible — they reflect exactly what the
+        token can reach. Answers 'what is my GitHub account / who am I acting as'.
+        """
+        d = self._get_json(f"{API_ROOT}/user", "get authenticated user")
+        out = {
+            "login": d.get("login"),
+            "name": d.get("name"),
+            "id": d.get("id"),
+            "type": d.get("type"),
+            "html_url": d.get("html_url"),
+            "company": d.get("company"),
+            "location": d.get("location"),
+            "public_repos": d.get("public_repos"),
+            "public_gists": d.get("public_gists"),
+            "followers": d.get("followers"),
+            "following": d.get("following"),
+        }
+        # Private counts + plan appear only on the authenticated /user view (and only
+        # when the token carries the scope); include them when present so Owen can see
+        # how many private repos the token reaches.
+        for k in ("total_private_repos", "owned_private_repos", "private_gists"):
+            if k in d:
+                out[k] = d.get(k)
+        plan = d.get("plan") or {}
+        if plan.get("name"):
+            out["plan"] = plan.get("name")
+        return out
+
+    def list_my_repos(self, visibility: str = "all", affiliation: str | None = None,
+                      sort: str = "pushed", limit: int = 30) -> dict:
+        """Repos the authenticated token can access (GitHub GET /user/repos).
+
+        The enumeration /repos/{owner}/{repo} can't do: it lists what the token
+        actually reaches — public AND private — most-recently-active first.
+        visibility is all|public|private; affiliation is an optional comma list
+        (owner,collaborator,organization_member). Read-only.
+        """
+        params: dict = {"visibility": visibility, "sort": sort, "per_page": min(limit, 100)}
+        if affiliation:
+            params["affiliation"] = affiliation
+        d = self._get_json(f"{API_ROOT}/user/repos", "list my repos", params)
+        repos = [{
+            "full_name": r.get("full_name"),
+            "private": r.get("private"),
+            "fork": r.get("fork"),
+            "archived": r.get("archived"),
+            "description": r.get("description"),
+            "language": r.get("language"),
+            "default_branch": r.get("default_branch"),
+            "pushed_at": r.get("pushed_at"),
+            "html_url": r.get("html_url"),
+        } for r in d]
+        return {"count": len(repos), "visibility": visibility, "repos": repos}
+
     # ---- repo reads ----
     def get_repo(self, owner: str, repo: str) -> dict:
         d = self._get_json(f"{API_ROOT}/repos/{owner}/{repo}", "get repo")
