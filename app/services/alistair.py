@@ -64,6 +64,11 @@ ROUTING = [
      "use": "gmail_search then gmail_read_thread to read; gmail_create_draft to draft. DRAFTS only — never sends."},
     {"says": ["what's happening with <project>", "open PRs", "project status"],
      "use": "project_context(owner, repo) — repo meta + commits + PRs + issues + README in one call."},
+    {"says": ["what's my GitHub account", "who am I on GitHub", "list my repos",
+              "which repos do I have", "find a repo"],
+     "use": "github_whoami identifies the account behind the token; github_list_my_repos enumerates the "
+            "repos it can reach (public + private, newest first). Use it to discover owner/repo before "
+            "project_context or the per-repo tools — no need to know the name up front. Read-only."},
     {"says": ["remember this", "forget that", "what do you know about me"],
      "use": "get_memory to read FIRST (it's also in this context), THEN save_memory to write a durable "
             "fact (op='retract' to forget). Save the moment a durable fact surfaces, not at session end, "
