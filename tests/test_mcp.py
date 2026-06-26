@@ -46,12 +46,13 @@ names = set(by_name)
 
 # === server identity + tool registration ===
 check("server name is snake_case alistair_assistant", M.mcp.name == "alistair_assistant")
-check("35 tools registered (22 + 4 gmail + whereami + 4 notion + 4 calendar)", len(tools) == 35)
+check("37 tools registered (24 github-incl + 4 gmail + whereami + 4 notion + 4 calendar)", len(tools) == 37)
 check("all tool names snake_case (no hyphens)",
       all(n.replace("_", "a").isalnum() and n == n.lower() and "-" not in n for n in names))
 for core in ("load_context", "get_memory", "save_memory", "get_skill", "daily_brief",
              "project_context", "save_reference", "add_action", "notion_search", "notion_fetch",
              "notion_update_page", "calendar_today", "intray", "github_merge_pr",
+             "github_whoami", "github_list_my_repos",
              "gmail_search", "gmail_read_thread", "gmail_create_draft", "gmail_list_drafts"):
     check(f"tool present: {core}", core in names)
 
@@ -173,7 +174,7 @@ with TestClient(asgi) as cl:
     check("/mcp wrong key -> 401", rwrong.status_code == 401)
     # REST still flows through the dispatcher to FastAPI
     check("dispatcher passes /health to FastAPI", cl.get("/health").status_code == 200)
-    check("dispatcher passes /api/manifest to FastAPI", cl.get("/api/manifest").json()["counts"]["total"] == 54)
+    check("dispatcher passes /api/manifest to FastAPI", cl.get("/api/manifest").json()["counts"]["total"] == 56)
 os.environ.pop("SERVICE_API_KEY", None); _cfg.get_settings.cache_clear()
 
 # --- results ---
