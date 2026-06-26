@@ -81,6 +81,26 @@ For a tool to "just work" everywhere after deploy + reconnect you need exactly t
 authored well: a **self-sufficient tool description** + a **`load_context` ROUTING entry**.
 Skill, trigger word, and `INSTRUCTIONS` edits are for nuance or claude.ai-only scoping.
 
+## Per-client: what (if anything) you must do
+
+Default answer for every client is **nothing but reconnect** — they discover the new tool
+from `tools/list` and learn it from its description + `load_context`. The only conditional
+edits are the two starred rows.
+
+| Client / artifact | What to do when you add a new tool |
+|---|---|
+| **The connector** (server) | Author the tool description + a `load_context` ROUTING entry; deploy. This is the only *required* authoring. |
+| **Gemini** | Nothing. Reconnect to refresh its tool list. |
+| **ChatGPT** | Nothing. Reconnect. |
+| **Voice agent (Pipecat)** | Nothing if it forwards *all* MCP tools to the model — just restart/reconnect so it re-reads `tools/list`. Edit it **only** if it hardcodes a tool subset or custom routing. |
+| **claude.ai skill** ⭐ | Nothing — **UNLESS** the tool opens a genuinely new *domain* that needs a new trigger word (e.g. "Granola" / "my meetings"). Then add one line to the `SKILL.md` **Description** only. The skill **body never changes** for a new tool (it's a thin trigger, not a rulebook). |
+| **Skills** (`get_skill`) ⭐ | Nothing — **UNLESS** the tool needs multi-step usage nuance. Then drop a `app/skills/data/<slug>.json` (file-discovered, no registration) and point the tool description at it. |
+| **Memory / persona** | Never. New tools don't touch memory; never seed anything per-client. |
+
+So in practice: **author the description + routing entry, deploy, reconnect everywhere.**
+The starred rows are the only times you touch a client-side or skill artifact at all, and
+both are one-line, single-file, claude.ai-only (Gemini/ChatGPT/voice need none of it).
+
 ## Cautions
 
 - **Context bloat is the real scaling limit.** Every client loads *all* tool descriptions
