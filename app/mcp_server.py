@@ -41,6 +41,8 @@ INSTRUCTIONS = (
     "block; use search_memory to recall anything older/specific that isn't in it. Save "
     "durable facts/preferences/open-loops with save_memory the moment they surface (read or "
     "search first to dedupe); never save transient or experiment data — that goes to Notion. "
+    "At the END of a conversation/session, run a light memory tidy: call memory_maintenance and "
+    "merge/retract the obvious duplicates you just created (it returns the full store + the procedure). "
     "Notion is sacred: load the notion-master skill before any Notion write, edit surgically, "
     "and never overwrite a whole page."
 )
@@ -165,6 +167,31 @@ def save_memory(content: str, type: str = "fact", relevance: int = 3,
         get_settings(), content=content, type_=type, relevance=relevance,
         tags=tags, op=op, source="mcp",
     ))
+
+
+@mcp.tool(
+    name="memory_maintenance",
+    description=(
+        "Get everything needed to CONSOLIDATE Alistair's memory in one call: the full current store "
+        "(every entry) plus the step-by-step maintenance procedure. Call this to tidy memory — at the "
+        "END of a conversation/session (e.g. a voice agent's wrap-up), during a brief, or when Owen says "
+        "'tidy your memory'. Then act on the returned procedure with save_memory (merge near-duplicates "
+        "into one canonical entry, retract stale/contradictory/transient entries, downgrade over-pinned "
+        "ones). The append-only log is reversible. Read-only itself — it only reads + returns the rules."
+    ),
+)
+def memory_maintenance() -> dict:
+    def _do():
+        proc = load_skill("memory-maintenance") or {}
+        store = memory_service.op_list_memory(get_settings())
+        return {
+            "procedure": proc.get("instructions", ""),
+            "guardrails": "Never invent facts. Ask Owen before deleting personal data you're unsure "
+                          "about. Re-assert identity/safety (relevance 5) facts before retracting any "
+                          "near-duplicate. Report what you merged/retracted.",
+            "store": store,
+        }
+    return _run(_do)
 
 
 @mcp.tool(

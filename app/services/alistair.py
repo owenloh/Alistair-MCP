@@ -137,9 +137,11 @@ MEMORY_PROTOCOL = [
     "there is no need to over-pin.",
     "Reconcile a host client's memory IN (fold durable facts it holds into save_memory with a clear source), "
     "then let the host store thin out — Alistair's store is the keeper.",
-    "Keep it tidy. Memory rots if you over-save; periodically consolidate per get_skill('memory-maintenance') "
-    "— search/list the store, retract duplicates, stale and contradictory entries, and re-assert one clean "
-    "canonical version. Do this on request ('tidy your memory') or as a light pass in the weekly brief.",
+    "Keep it tidy. Memory rots if you over-save; consolidate periodically. The memory_maintenance tool "
+    "returns the full store + the procedure in one call — use it to merge near-duplicates into one "
+    "canonical entry, retract stale/contradictory/transient entries, and re-assert clean versions. Run it "
+    "at the END of a conversation/session (e.g. a voice agent's wrap-up), as a light pass in a brief, or on "
+    "request ('tidy your memory'). Full rules in get_skill('memory-maintenance').",
 ]
 
 

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from ..config import get_settings
 from ..security import require_api_key
 from ..services import memory as memory_service
+from ..skills import load_skill
 
 router = APIRouter(
     prefix="/api/memory",
@@ -101,3 +102,22 @@ def search_memory(body: SearchMemoryRequest) -> dict:
 @router.post("/list", summary="List raw memories", description=_LIST_DOC)
 def list_memory() -> dict:
     return memory_service.op_list_memory(get_settings())
+
+
+_MAINT_DOC = (
+    "Everything needed to consolidate memory in one call: the full current store plus the "
+    "step-by-step maintenance procedure. Call at the end of a conversation/session, during a "
+    "brief, or on request to tidy memory, then act on the procedure with /save."
+)
+
+
+@router.post("/maintenance", summary="Memory consolidation kit", description=_MAINT_DOC)
+def memory_maintenance() -> dict:
+    proc = load_skill("memory-maintenance") or {}
+    return {
+        "procedure": proc.get("instructions", ""),
+        "guardrails": "Never invent facts. Ask Owen before deleting personal data you're unsure "
+                      "about. Re-assert identity/safety (relevance 5) facts before retracting any "
+                      "near-duplicate. Report what you merged/retracted.",
+        "store": memory_service.op_list_memory(get_settings()),
+    }
