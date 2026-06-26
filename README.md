@@ -189,13 +189,19 @@ voice latency.
 
 ## Extending (future-proofing)
 
+**Adding a new tool or API integration (Google Workspace, Granola, …): follow
+[`docs/ADDING_TOOLS.md`](docs/ADDING_TOOLS.md)** — the full runbook + checklist for
+making a new capability propagate to every client (claude.ai, voice, Gemini, ChatGPT)
+on deploy + reconnect, with no per-client edits. The short version:
+
 - **More GitHub:** `app/services/github.py` (`GitHubClient`) already powers the
   in-tray gist + `push-file`. Add a route in `app/routers/github.py` calling a new
   client method — e.g. `POST /api/github/push-file` is already wired this way.
 - **More skills:** drop a `app/skills/data/<slug>.json` file; it is served at
   `/api/skill/<slug>` automatically (no code change).
-- **More connector tools:** add an `op_*` in the service + a route with the
-  verbatim description.
+- **More connector tools:** add an `op_*` in the service + a route with the verbatim
+  description + an MCP `@mcp.tool` wrapper + a `load_context` ROUTING entry. The
+  description + routing entry are the *minimum* that makes it propagate everywhere.
 
 ## Security
 
