@@ -14,6 +14,8 @@ OAuth is the documented next step; see docs/ROADMAP.md.
 """
 from __future__ import annotations
 
+import json
+
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -268,14 +270,18 @@ def notion_query_database(database_id: str, filter: dict | None = None,
 @mcp.tool(
     name="notion_update_page",
     description=(
-        "Edit a Notion page. DANGEROUS — Notion is sacred; load the notion-master skill FIRST and follow "
-        "its safe-write protocol (read the page + keep the before-state, edit, re-read to verify). Commands: "
-        "command='update_content' with content_updates=[{old_str, new_str}] is the SAFE targeted edit — "
-        "anchor old_str on unique existing text; to ADD, make new_str start with old_str plus the addition; "
-        "to DELETE a span, set new_str empty. command='insert_content' with content appends (after_block_id "
-        "places it). command='update_properties' with properties edits database fields. command='replace_content' "
-        "OVERWRITES THE WHOLE PAGE (new_str) — almost never what you want; needs allow_deleting_content=true. "
-        "Prefer update_content; never overwrite the whole page (replace_content) unless Owen explicitly says so this turn."
+        "Edit a Notion page's text/prose. DANGEROUS — Notion is sacred; load the notion-master skill FIRST. "
+        "For STRUCTURAL changes (nesting into a toggle, reordering, deleting specific/duplicate blocks) use the "
+        "block-id tools instead (notion_list_blocks -> notion_append_blocks/notion_update_block/"
+        "notion_delete_blocks by id). command='update_content' with content_updates=[{old_str, new_str, "
+        "replace_all_matches?, allow_cross_block?, allow_deleting_content?}] is the SAFE in-block edit — anchor "
+        "old_str on unique existing text; to ADD make new_str start with old_str plus the addition; to DELETE a "
+        "block set new_str empty. FAIL-SAFE: if old_str matches >1 place it ERRORS (409) with each match unless "
+        "replace_all_matches=true; if old_str would span/delete across blocks it ERRORS (400) unless "
+        "allow_cross_block=true; deleting a child page/database ERRORS (400) unless allow_deleting_content=true. "
+        "command='insert_content' appends content (after_block_id places it). command='update_properties' edits "
+        "database fields. command='replace_content' OVERWRITES THE WHOLE PAGE — almost never what you want. Read "
+        "the markdown spec (alistair://docs/notion-markdown-spec or notion_markdown_spec) before composing markdown."
     ),
 )
 def notion_update_page(page_id: str, command: str, content: str | None = None,
@@ -342,6 +348,126 @@ def notion_get_comments(page_id: str, include_resolved: bool = False) -> dict:
 def notion_create_comment(page_id: str, markdown: str) -> dict:
     from .routers.notion import CreateCommentRequest, create_comment
     return _run(lambda: create_comment(CreateCommentRequest(page_id=page_id, markdown=markdown)))
+
+
+# ---- block-ID primitives (deterministic structure; claude.ai's connector lacks these) ----
+@mcp.tool(
+    name="notion_list_blocks",
+    description=(
+        "List a Notion page/block's children as {id, type, text, has_children, parent_id, depth}. "
+        "recursive=true walks the whole subtree; otherwise paginate with start_cursor/next_cursor. "
+        "The ids are deterministic handles for the block-id write tools below. Read-only. To delete "
+        "specific/duplicate blocks, get their ids here then call notion_delete_blocks — NEVER delete "
+        "by text match."
+    ),
+)
+def notion_list_blocks(page_id: str, recursive: bool = False, start_cursor: str | None = None) -> dict:
+    from .routers.notion import ListBlocksRequest, list_blocks
+    return _run(lambda: list_blocks(ListBlocksRequest(
+        page_id=page_id, recursive=recursive, start_cursor=start_cursor)))
+
+
+@mcp.tool(
+    name="notion_append_blocks",
+    description=(
+        "Append typed Notion block objects under a parent (native nesting; no markdown round-trip). "
+        "blocks = list of Notion REST block objects, e.g. a toggle with children "
+        "{\"type\":\"toggle\",\"toggle\":{\"rich_text\":[...],\"children\":[...]}}; `after` places them "
+        "after an existing child by id. To nest loose blocks into a toggle: append a toggle WITH "
+        "children here, then delete the old loose blocks by id with notion_delete_blocks. Read the "
+        "notion-markdown-spec (resource or notion_markdown_spec tool) for block shapes; do not guess."
+    ),
+)
+def notion_append_blocks(parent_id: str, blocks: list[dict], after: str | None = None) -> dict:
+    from .routers.notion import AppendBlocksRequest, append_blocks
+    return _run(lambda: append_blocks(AppendBlocksRequest(parent_id=parent_id, blocks=blocks, after=after)))
+
+
+@mcp.tool(
+    name="notion_update_block",
+    description=(
+        "Update ONE Notion block in place by id. block = the type payload, e.g. "
+        "{\"paragraph\":{\"rich_text\":[...]}} or {\"to_do\":{\"checked\":true}}. Get the id from "
+        "notion_list_blocks/notion_fetch. Cannot change a block's type."
+    ),
+)
+def notion_update_block(block_id: str, block: dict) -> dict:
+    from .routers.notion import UpdateBlockRequest, update_block
+    return _run(lambda: update_block(UpdateBlockRequest(block_id=block_id, block=block)))
+
+
+@mcp.tool(
+    name="notion_delete_blocks",
+    description=(
+        "Delete specific Notion blocks by id — deterministic: ONLY the listed blocks are removed. "
+        "THIS is the safe way to delete duplicates or specific blocks; NEVER delete by text match. "
+        "block_ids from notion_list_blocks/notion_fetch. Returns per-id success. Fails (lists them) if "
+        "a block is/contains a child page or database unless allow_deleting_content=true."
+    ),
+)
+def notion_delete_blocks(block_ids: list[str], allow_deleting_content: bool = False) -> dict:
+    from .routers.notion import DeleteBlocksRequest, delete_blocks
+    return _run(lambda: delete_blocks(DeleteBlocksRequest(
+        block_ids=block_ids, allow_deleting_content=allow_deleting_content)))
+
+
+@mcp.tool(
+    name="notion_move_blocks",
+    description=(
+        "Move blocks (in order) to directly after another block, within that block's parent — "
+        "reorder/restructure. No native REST move, so each block's subtree is copied to the new "
+        "position and the original deleted (children preserved; ids change). Get ids from "
+        "notion_list_blocks."
+    ),
+)
+def notion_move_blocks(block_ids: list[str], after_block_id: str) -> dict:
+    from .routers.notion import MoveBlocksRequest, move_blocks
+    return _run(lambda: move_blocks(MoveBlocksRequest(block_ids=block_ids, after_block_id=after_block_id)))
+
+
+@mcp.tool(
+    name="notion_markdown_spec",
+    description=(
+        "Return the Alistair Notion-flavored markdown spec (exact dialect for headings, lists, "
+        "dividers, toggles + nesting, callouts, tables, code, math, mentions, colors). Read this BEFORE "
+        "composing markdown for any Notion write; do not guess syntax. Same text as the MCP resource "
+        "alistair://docs/notion-markdown-spec."
+    ),
+)
+def notion_markdown_spec() -> dict:
+    from .docs import NOTION_MARKDOWN_SPEC
+    return {"uri": "alistair://docs/notion-markdown-spec", "format": "markdown",
+            "content": NOTION_MARKDOWN_SPEC}
+
+
+# ===================== MCP resources (progressive enhancement) =====================
+# Every served doc is ALSO an equivalent tool above, so clients that don't load
+# resources (Gemini/voice) still get the content. Resource-capable clients
+# (claude.ai, Claude Desktop, Cursor) get the cleaner resource view.
+@mcp.resource(
+    "alistair://docs/notion-markdown-spec",
+    name="Notion markdown spec",
+    description="The exact Notion-flavored markdown dialect Alistair reads/writes. Read before "
+    "composing markdown for any Notion write. Equivalent tool: notion_markdown_spec.",
+    mime_type="text/markdown",
+)
+def _res_notion_markdown_spec() -> str:
+    from .docs import NOTION_MARKDOWN_SPEC
+    return NOTION_MARKDOWN_SPEC
+
+
+@mcp.resource(
+    "alistair://skills/{slug}",
+    name="Alistair skill",
+    description="An Alistair skill's full rules (notion-master, daily-brief, notion-references-tray, "
+    "microsoft-todo-intray, gmail). Equivalent tool: get_skill.",
+    mime_type="application/json",
+)
+def _res_skill(slug: str) -> str:
+    data = load_skill(slug)
+    if data is None:
+        return json.dumps({"error": f"Unknown skill '{slug}'.", "available": list_slugs()})
+    return json.dumps(data, ensure_ascii=False)
 
 
 # ===================== Calendar =====================

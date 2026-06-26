@@ -31,7 +31,8 @@ tools** on `alistair_assistant`.
 `create-database`, `update-data-source`, `create-comment`, `get-comments`,
 `get-users`, `get-teams`, `create-view`, `update-view`, `query-database`,
 `query` (the PARA daily-brief read: `ACTIVE_PROJECTS`, `NEXT_ACTIONS`,
-`SOMEDAY_PROJECTS`, `SOMEDAY_ACTIONS`).
+`SOMEDAY_PROJECTS`, `SOMEDAY_ACTIONS`), plus the **block-id primitives**
+`list-blocks`, `append-blocks`, `update-block`, `delete-blocks`, `move-blocks`.
 
 ### Google Calendar function APIs (`/api/calendar/*`)
 `today`, `list-events`, `list-calendars`, `get-event`, `create-event`,
@@ -54,19 +55,47 @@ but not always byte-for-byte:
 - **Exact / clean:** all Calendar tools, the in-tray, Notion `search`, `fetch`,
   `query-database`, `query`, `get-users`, `create-pages`, `update-page`
   (`update_properties` / `insert_content` / `update_content` / `replace_content`),
-  `create-comment`, `get-comments`.
+  `create-comment`, `get-comments`, and the block-id tools `list-blocks` /
+  `append-blocks` / `update-block` / `delete-blocks`.
 - **Best-effort:** `duplicate-page` (shallow copy of top-level blocks),
   `create-database` / `update-data-source` (common column types; not
-  RELATION/ROLLUP/FORMULA), `move-pages` (pages only).
+  RELATION/ROLLUP/FORMULA), `move-pages` (pages only), `move-blocks` (no native
+  REST move — copies each subtree to the new spot then deletes the original, so
+  block ids change).
 - **Returns 501 (not in the public REST API):** `get-teams`, `create-view`,
   `update-view`, and `update-page` commands `apply_template` / `update_verification`.
   Use `query-database` for filtered reads instead of views.
 
-The Notion write path honours the skills' **safe-write protocol** at the
-block level: `update_content` matches `old_str` against block text, an
-append-only `old_str→new_str` becomes an append after the matched block, and an
-empty `new_str` deletes the matched block(s). `replace_content` refuses to drop
-child pages unless `allow_deleting_content` is set.
+### Notion writes: text-tools vs block-id-tools
+
+There are two write surfaces, by design, and the `notion-master` skill routes
+between them:
+
+- **Text-tools — in-block PROSE edits.** `update-page` `update_content`
+  (`content_updates=[{old_str, new_str}]`), `insert_content`, `replace_content`.
+  Use these to fix a typo, reword a line, or append to a block. `update_content`
+  is **fail-safe** (mirrors claude.ai's connector, then exceeds it):
+  - **Multi-match guard** — if `old_str` matches more than once it fails (409)
+    with the match count and a snippet of each, unless `replace_all_matches=true`.
+    It never silently picks one or deletes all.
+  - **Block-boundary aware** — a single `old_str` must resolve within one block; if
+    it would span/delete across blocks it fails (400) naming them, unless
+    `allow_cross_block=true` (delete only). A partial-block match is spliced in
+    place (surrounding text + inline bold/links/`checked`/color preserved).
+  - **Child-page guard** — any edit (and `replace_content`) that would delete a
+    child page/database, including nested, fails (400) listing them unless
+    `allow_deleting_content=true`.
+- **Block-id-tools — ALL STRUCTURE.** `list-blocks` (ids + type + depth + parent),
+  `append-blocks` (typed Notion blocks, native nesting), `update-block`,
+  `delete-blocks` (deterministic — only the listed ids), `move-blocks`. Use these
+  to nest loose blocks into a toggle, reorder, or delete specific/duplicate blocks
+  by id — never delete structure by text match.
+
+The Notion-flavored markdown dialect (toggles, nesting, tables, …) is documented
+once and served two ways: the MCP resource `alistair://docs/notion-markdown-spec`
+and the equivalent `notion_markdown_spec` tool (so clients that don't load
+resources still get it). Skills are likewise served as `get_skill` **and** the
+`alistair://skills/{slug}` resource template.
 
 ## Environment variables
 

@@ -151,6 +151,33 @@ class QueryDatabaseRequest(BaseModel):
     start_cursor: str | None = None
 
 
+class ListBlocksRequest(BaseModel):
+    page_id: str
+    recursive: bool = False
+    start_cursor: str | None = None
+
+
+class AppendBlocksRequest(BaseModel):
+    parent_id: str
+    blocks: list[dict]
+    after: str | None = None
+
+
+class UpdateBlockRequest(BaseModel):
+    block_id: str
+    block: dict
+
+
+class DeleteBlocksRequest(BaseModel):
+    block_ids: list[str]
+    allow_deleting_content: bool = False
+
+
+class MoveBlocksRequest(BaseModel):
+    block_ids: list[str]
+    after_block_id: str
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -237,6 +264,31 @@ def update_view(body: UpdateViewRequest) -> dict:
 @router.post("/query-database", summary="Query a database (filtered)", description=docs.QUERY_DATABASE)
 def query_database(body: QueryDatabaseRequest) -> dict:
     return notion_service.op_query_database(get_settings(), **body.model_dump())
+
+
+@router.post("/list-blocks", summary="List a page's blocks by id", description=docs.LIST_BLOCKS)
+def list_blocks(body: ListBlocksRequest) -> dict:
+    return notion_service.op_list_blocks(get_settings(), **body.model_dump())
+
+
+@router.post("/append-blocks", summary="Append typed blocks", description=docs.APPEND_BLOCKS)
+def append_blocks(body: AppendBlocksRequest) -> dict:
+    return notion_service.op_append_blocks(get_settings(), **body.model_dump())
+
+
+@router.post("/update-block", summary="Update one block by id", description=docs.UPDATE_BLOCK)
+def update_block(body: UpdateBlockRequest) -> dict:
+    return notion_service.op_update_block(get_settings(), **body.model_dump())
+
+
+@router.post("/delete-blocks", summary="Delete specific blocks by id", description=docs.DELETE_BLOCKS)
+def delete_blocks(body: DeleteBlocksRequest) -> dict:
+    return notion_service.op_delete_blocks(get_settings(), **body.model_dump())
+
+
+@router.post("/move-blocks", summary="Move blocks by id", description=docs.MOVE_BLOCKS)
+def move_blocks(body: MoveBlocksRequest) -> dict:
+    return notion_service.op_move_blocks(get_settings(), **body.model_dump())
 
 
 @router.post("/query", summary="Daily-brief filtered read", description=docs.QUERY_BRIEF)

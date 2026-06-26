@@ -47,29 +47,96 @@ CREATE_PAGES = (
     "Notion page properties are a JSON map of property names to values. When "
     "creating pages in a database, use the correct property names from the data "
     "source schema (always include the title property). For pages outside a "
-    "database, the only allowed property is \"title\"."
+    "database, the only allowed property is \"title\".\n[Read the Notion markdown spec "
+    "first — MCP resource `alistair://docs/notion-markdown-spec` or `notion_markdown_spec`; "
+    "do not guess markdown syntax, especially for toggles and nesting.]"
 )
 
 UPDATE_PAGE = (
-    "## Overview\nUpdate a Notion page's properties or content.\n## Properties\n"
+    "## Overview\nUpdate a Notion page's properties or content. Read the Notion "
+    "markdown spec FIRST (MCP resource `alistair://docs/notion-markdown-spec`, or call "
+    "`notion_markdown_spec`); do not guess markdown syntax. For STRUCTURAL changes "
+    "(nesting, reordering, deleting specific/duplicate blocks) prefer the block-id "
+    "tools (notion_list_blocks + notion_append_blocks/notion_update_block/"
+    "notion_delete_blocks) — update_content is for in-block prose edits.\n## Properties\n"
     "For pages in a database, ALWAYS use the \"fetch\" tool first to get the schema "
     "and exact property names. Provide a non-null value to update a property; "
     "omitted properties are left unchanged. Date properties split into "
     "\"date:{property}:start\", \"date:{property}:end\" (optional) and "
-    "\"date:{property}:is_datetime\". Number properties use numbers. Checkbox uses "
-    "\"__YES__\"/\"__NO__\". Properties named \"id\" or \"url\" must be prefixed with "
-    "\"userDefined:\".\n## Content\nNotion page content is Notion-flavored Markdown. "
-    "Use \"insert_content\" to add content at the beginning or end of a page (if "
-    "position is omitted, content is appended to the end). Before using "
-    "\"update_content\", use \"fetch\" to get existing content and the exact snippets "
-    "to use in old_str. Commands: update_properties, update_content, "
-    "replace_content, insert_content, apply_template, update_verification.\n"
-    "### Preserving Child Pages\nWhen using \"replace_content\", if any child pages "
-    "or databases would be deleted the operation fails unless allow_deleting_content "
-    "is set.\n[Workaround note: update_content matches old_str against block text; "
-    "an old_str→new_str that only appends is realized as an append after the matched "
-    "block; an empty new_str deletes the matched block(s). apply_template and "
-    "update_verification are not available via the REST API.]"
+    "\"date:{property}:is_datetime\" (0/1). Place properties split into "
+    "\"place:{property}:name|address|latitude|longitude|google_place_id\". Number "
+    "properties use numbers. Checkbox uses \"__YES__\"/\"__NO__\". Properties named "
+    "\"id\" or \"url\" must be prefixed with \"userDefined:\".\n## Content\nNotion page "
+    "content is Notion-flavored Markdown. Use \"insert_content\" to add content at the "
+    "beginning or end of a page (if position is omitted, content is appended to the "
+    "end). Before using \"update_content\", use \"fetch\" to get existing content and "
+    "the exact snippets to use in old_str. Commands: update_properties, "
+    "update_content, replace_content, insert_content, apply_template, "
+    "update_verification.\n## update_content safety (fail-safe)\nEach content_updates "
+    "item is {old_str, new_str, replace_all_matches?, allow_cross_block?, "
+    "allow_deleting_content?}. If old_str matches MORE THAN ONCE, the call FAILS (409) "
+    "with the count + a snippet per match unless replace_all_matches=true — it never "
+    "silently picks one or deletes all. A single old_str must resolve within ONE block; "
+    "if it would span/delete across blocks it FAILS (400) unless allow_cross_block=true "
+    "(delete only). An edit that would remove a child page/database FAILS (400) listing "
+    "them unless allow_deleting_content=true. An old_str→new_str that only appends is "
+    "realized as an append after the matched block; an empty new_str deletes the matched "
+    "block (or splices out a partial match). NEVER delete structure by text match — use "
+    "notion_delete_blocks by id.\n### Preserving Child Pages\nFor \"replace_content\" "
+    "and delete-by-text, if any child pages/databases (including nested) would be "
+    "deleted the operation fails unless allow_deleting_content is set.\n[Workaround note: "
+    "apply_template and update_verification are not available via the REST API.]"
+)
+
+LIST_BLOCKS = (
+    "List a Notion page's (or block's) children as structured blocks, each with its "
+    "unique id, type, text, has_children, parent_id and depth. recursive=false returns "
+    "one paginated page of direct children (pass the returned next_cursor back as "
+    "start_cursor); recursive=true walks the whole subtree. Use the returned ids as "
+    "deterministic handles for notion_append_blocks/notion_update_block/"
+    "notion_delete_blocks/notion_move_blocks. Read-only."
+)
+
+APPEND_BLOCKS = (
+    "Append typed Notion block objects under a parent block/page (native nesting, no "
+    "markdown round-trip). blocks is a list of Notion REST block objects, e.g. "
+    "{\"type\":\"paragraph\",\"paragraph\":{\"rich_text\":[{\"type\":\"text\",\"text\":"
+    "{\"content\":\"hi\"}}]}} or a toggle with children "
+    "{\"type\":\"toggle\",\"toggle\":{\"rich_text\":[...],\"children\":[...]}}. `after` "
+    "places the new blocks after an existing child by id (otherwise appended at the "
+    "end). To nest loose blocks into a toggle: append a toggle WITH its children here, "
+    "then delete the old loose blocks by id with notion_delete_blocks. Read the markdown "
+    "spec resource for block shapes; do not guess."
+)
+
+UPDATE_BLOCK = (
+    "Update one Notion block in place by id. `block` is the block's type payload, e.g. "
+    "{\"paragraph\":{\"rich_text\":[...]}} or {\"to_do\":{\"checked\":true}} (you may "
+    "also pass a full {\"type\":...,...} block; the type payload is extracted). Use "
+    "notion_list_blocks/notion_fetch to get the block id. Cannot change a block's type."
+)
+
+DELETE_BLOCKS = (
+    "Delete specific Notion blocks by id — deterministic: ONLY the listed blocks are "
+    "removed. THIS is the safe way to delete duplicates or specific blocks; NEVER delete "
+    "by text match. block_ids is a list of block ids from notion_list_blocks/"
+    "notion_fetch. Returns per-id success. If any block is or contains a child "
+    "page/database the call FAILS (400) listing them unless allow_deleting_content=true."
+)
+
+MOVE_BLOCKS = (
+    "Move blocks to sit after another block (reorder/restructure). block_ids are moved, "
+    "in order, to directly after after_block_id (within after_block_id's parent). The "
+    "REST API has no native move, so each block's full subtree is copied to the new "
+    "position and the original deleted (children preserved; block ids change). Get ids "
+    "from notion_list_blocks."
+)
+
+NOTION_MARKDOWN_SPEC = (
+    "Return the Alistair Notion-flavored markdown spec (the exact dialect for headings, "
+    "lists, dividers, toggles + nesting, callouts, tables, code, math, mentions and "
+    "colors). Read this BEFORE composing any markdown for a Notion write; do not guess "
+    "syntax. Same content as the MCP resource alistair://docs/notion-markdown-spec."
 )
 
 MOVE_PAGES = "Move one or more Notion pages or databases to a new parent."

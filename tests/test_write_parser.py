@@ -226,6 +226,48 @@ check("color span round-trips", back[0]["annotations"].get("color") == "red")
 
 
 # ---------------------------------------------------------------------------
+# 4. Toggle + nesting ROUND-TRIP (write -> render -> assert structure) and the
+#    space-indentation tolerance (children must NOT flatten into loose blocks).
+# ---------------------------------------------------------------------------
+TOGGLE_DOC = "\n".join([
+    "<details>",
+    "<summary>Day 1 headline</summary>",
+    "\tintro paragraph",
+    "\t- a bullet",
+    "\t\t- nested bullet",
+    "</details>",
+])
+rt_toggle, tblocks = roundtrip(TOGGLE_DOC)
+check("toggle round-trips to a real toggle block", tblocks[0]["type"] == "toggle")
+check("toggle round-trip keeps children (not flattened)",
+      len(tblocks[0]["toggle"].get("children", [])) == 2)
+check("toggle round-trip markdown re-emits <details>", "<details>" in rt_toggle and "</details>" in rt_toggle)
+check("toggle round-trip is idempotent", rt_toggle == TOGGLE_DOC)
+
+# Space-indented toggle children (4-space) must still nest, not flatten.
+SPACE_TOGGLE = "\n".join([
+    "<details>",
+    "<summary>Spaced</summary>",
+    "    a child paragraph",
+    "    - a child bullet",
+    "</details>",
+])
+sb = markdown_to_blocks(SPACE_TOGGLE)
+check("space-indented toggle is a toggle", sb[0]["type"] == "toggle")
+check("space-indented toggle keeps its children (no flatten)",
+      len(sb[0]["toggle"].get("children", [])) == 2 and len(sb) == 1)
+
+# 2-space unit detection: grandchild at 4 spaces nests under child at 2 spaces.
+TWO_SPACE = "- parent\n  - child\n    - grandchild"
+ts = markdown_to_blocks(TWO_SPACE)
+check("2-space nesting: parent has one child",
+      ts[0]["type"] == "bulleted_list_item" and len(ts[0]["bulleted_list_item"]["children"]) == 1)
+check("2-space nesting: grandchild nested two deep",
+      ts[0]["bulleted_list_item"]["children"][0]["bulleted_list_item"]["children"][0]
+        ["bulleted_list_item"]["rich_text"][0]["text"]["content"] == "grandchild")
+
+
+# ---------------------------------------------------------------------------
 print("\n=== RESULTS ===")
 ok = True
 for name, p in PASS:

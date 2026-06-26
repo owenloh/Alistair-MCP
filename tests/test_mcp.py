@@ -46,7 +46,10 @@ names = set(by_name)
 
 # === server identity + tool registration ===
 check("server name is snake_case alistair_assistant", M.mcp.name == "alistair_assistant")
-check("37 tools registered (24 github-incl + 4 gmail + whereami + 4 notion + 4 calendar)", len(tools) == 37)
+check("43 tools registered (37 + 5 block-id + notion_markdown_spec)", len(tools) == 43)
+for blk in ("notion_list_blocks", "notion_append_blocks", "notion_update_block",
+            "notion_delete_blocks", "notion_move_blocks", "notion_markdown_spec"):
+    check(f"tool present: {blk}", blk in names)
 check("all tool names snake_case (no hyphens)",
       all(n.replace("_", "a").isalnum() and n == n.lower() and "-" not in n for n in names))
 for core in ("load_context", "get_memory", "save_memory", "get_skill", "daily_brief",
@@ -61,8 +64,14 @@ check("every tool has a real description", all((t.description or "") and len(t.d
 check("load_context says call first", "FIRST" in by_name["load_context"].description.upper())
 check("load_context names Alistair", "Alistair" in by_name["load_context"].description)
 check("save_memory marked the only write path", "ONLY" in by_name["save_memory"].description.upper())
-check("notion_update_page warns never overwrite whole page",
-      "never overwrite" in by_name["notion_update_page"].description.lower())
+check("notion_update_page warns about whole-page overwrite",
+      "overwrites the whole page" in by_name["notion_update_page"].description.lower())
+check("notion_update_page advertises the multi-match fail-safe",
+      "replace_all_matches" in by_name["notion_update_page"].description)
+check("notion_delete_blocks steers away from text-match deletes",
+      "never delete by text" in by_name["notion_delete_blocks"].description.lower())
+check("notion resources served (spec + skills template)",
+      any("notion-markdown-spec" in str(r.uri) for r in asyncio.run(M.mcp.list_resources())))
 check("github_merge_pr warns confirm-first",
       "confirm=false" in by_name["github_merge_pr"].description and
       "never merge" in by_name["github_merge_pr"].description.lower())
@@ -174,7 +183,7 @@ with TestClient(asgi) as cl:
     check("/mcp wrong key -> 401", rwrong.status_code == 401)
     # REST still flows through the dispatcher to FastAPI
     check("dispatcher passes /health to FastAPI", cl.get("/health").status_code == 200)
-    check("dispatcher passes /api/manifest to FastAPI", cl.get("/api/manifest").json()["counts"]["total"] == 56)
+    check("dispatcher passes /api/manifest to FastAPI", cl.get("/api/manifest").json()["counts"]["total"] == 61)
 os.environ.pop("SERVICE_API_KEY", None); _cfg.get_settings.cache_clear()
 
 # --- results ---

@@ -17,6 +17,7 @@ notion-master / daily-brief skills rely on (a port of scripts/notion_query.py).
 """
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any
 
@@ -136,6 +137,9 @@ class NotionClient:
         if after:
             body["after"] = after
         return self.request("PATCH", f"blocks/{block_id}/children", json_body=body)
+
+    def retrieve_block(self, block_id: str) -> dict:
+        return self.request("GET", f"blocks/{block_id}")
 
     def update_block(self, block_id: str, body: dict) -> dict:
         return self.request("PATCH", f"blocks/{block_id}", json_body=body)
@@ -491,8 +495,57 @@ def markdown_to_blocks(md: str) -> list[dict]:
     <table>, <synced_block>) wrap tab-indented children, and any text/list/quote
     block may carry indented child blocks. Mirrors render_blocks so writes
     round-trip what reads produce.
+
+    Leading indentation is normalized to tabs first (`_normalize_indent`) so a
+    toggle whose children the model indented with spaces still nests correctly
+    instead of silently flattening into loose top-level blocks.
     """
-    return _parse_blocks(md.split("\n"))
+    return _parse_blocks(_normalize_indent(md).split("\n"))
+
+
+def _normalize_indent(md: str) -> str:
+    """Convert leading-whitespace indentation to tabs (one tab per nesting level).
+
+    The renderer emits one tab per level, so tab-indented input is unchanged. For
+    space-indented input the indent unit is auto-detected as the smallest positive
+    space indent in the document (handles both 2- and 4-space conventions). Lines
+    inside ``` fences are left exactly as written.
+    """
+    raw = md.split("\n")
+    # Detect the space-indent unit from space-indented, non-fenced lines.
+    space_indents: list[int] = []
+    in_fence = False
+    for line in raw:
+        if line.lstrip(" \t").startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence or line[:1] != " ":
+            continue
+        cnt = len(line) - len(line.lstrip(" "))
+        if cnt:
+            space_indents.append(cnt)
+    unit = min(space_indents) if space_indents else 4
+
+    out: list[str] = []
+    in_fence = False
+    for line in raw:
+        if line.lstrip(" \t").startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence:
+            out.append(line)
+            continue
+        tabs = spaces = j = 0
+        while j < len(line) and line[j] in ("\t", " "):
+            if line[j] == "\t":
+                tabs += 1
+            else:
+                spaces += 1
+            j += 1
+        level = tabs + (spaces // unit if unit else 0)
+        out.append("\t" * level + line[j:])
+    return "\n".join(out)
 
 
 def _parse_blocks(lines: list[str]) -> list[dict]:
@@ -1067,7 +1120,7 @@ def _render_children(client: NotionClient, blk: dict, depth: int, counter: dict,
 
 
 def _render_one(client: NotionClient, blk: dict, depth: int, counter: dict,
-                md_parts: list[str], flat: list[dict]) -> None:
+                md_parts: list[str], flat: list[dict], parent_id: str | None = None) -> None:
     """Render one block (and its children) into md_parts/flat, connector-style.
 
     toggle -> <details>/<summary>, callout -> <callout>, columns ->
@@ -1084,6 +1137,8 @@ def _render_one(client: NotionClient, blk: dict, depth: int, counter: dict,
         "type": t,
         "text": rich_text_plain(data.get("rich_text")),
         "has_children": blk.get("has_children", False),
+        "parent_id": parent_id,
+        "depth": depth,
     })
     has_kids = bool(blk.get("has_children")) and depth < _MAX_CHILD_DEPTH
 
@@ -1166,7 +1221,7 @@ def render_blocks(client: NotionClient, block_id: str, depth: int, counter: dict
         if counter["n"] >= _MAX_TOTAL_BLOCKS:
             md_parts.append(_TRUNC)
             break
-        _render_one(client, blk, depth, counter, md_parts, flat)
+        _render_one(client, blk, depth, counter, md_parts, flat, parent_id=block_id)
     return "\n".join(md_parts), flat
 
 
@@ -1184,7 +1239,7 @@ def render_page(client: NotionClient, block_id: str, start_cursor: str | None,
         if counter["n"] >= _MAX_TOTAL_BLOCKS:
             md_parts.append(_TRUNC)
             break
-        _render_one(client, blk, 0, counter, md_parts, flat)
+        _render_one(client, blk, 0, counter, md_parts, flat, parent_id=block_id)
     next_cursor = data.get("next_cursor") if data.get("has_more") else None
     return "\n".join(md_parts), flat, next_cursor
 
@@ -1209,30 +1264,67 @@ def build_properties(props_in: dict, schema: dict | None) -> dict:
       - checkbox values "__YES__" / "__NO__"
       - "userDefined:URL" / "userDefined:id" prefixes
     """
-    # Gather expanded date parts first.
+    # Gather expanded date / place parts first.
     date_parts: dict[str, dict] = {}
+    place_parts: dict[str, dict] = {}
     simple: dict[str, Any] = {}
     for key, value in props_in.items():
         if key.startswith("date:"):
             _, pname, part = key.split(":", 2)
             date_parts.setdefault(pname, {})[part] = value
+        elif key.startswith("place:"):
+            _, pname, part = key.split(":", 2)
+            place_parts.setdefault(pname, {})[part] = value
         else:
             name = key[len("userDefined:"):] if key.startswith("userDefined:") else key
             simple[name] = value
 
     out: dict = {}
     for pname, parts in date_parts.items():
+        is_dt = _truthy(parts.get("is_datetime", "1"))
+        start = parts.get("start")
+        end = parts.get("end")
+        if not is_dt:
+            start = _date_only(start)
+            end = _date_only(end)
         d: dict = {}
-        if parts.get("start") is not None:
-            d["start"] = parts["start"]
-        if parts.get("end"):
-            d["end"] = parts["end"]
+        if start is not None:
+            d["start"] = start
+        if end:
+            d["end"] = end
         out[pname] = {"date": d or None}
+
+    for pname, parts in place_parts.items():
+        place: dict = {}
+        for key in ("name", "address", "google_place_id"):
+            if parts.get(key):
+                place[key] = parts[key]
+        for geo in ("latitude", "longitude"):
+            v = parts.get(geo)
+            if v not in (None, ""):
+                try:
+                    place[geo] = float(v)
+                except (TypeError, ValueError):
+                    place[geo] = v
+        out[pname] = {"place": place or None}
 
     for name, value in simple.items():
         ptype = (schema.get(name, {}).get("type") if schema else None)
         out[name] = _coerce_property(ptype, value)
     return out
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "__yes__")
+    return bool(value)
+
+
+def _date_only(value: Any) -> Any:
+    """Drop any time component so a date-only property isn't stored as a datetime."""
+    if isinstance(value, str) and "T" in value:
+        return value.split("T", 1)[0]
+    return value
 
 
 def _coerce_property(ptype: str | None, value: Any) -> dict:
@@ -1449,20 +1541,21 @@ def op_update_page(settings: Settings, *, page_id: str, command: str,
             if not content_updates:
                 raise ServiceError("update_content requires 'content_updates'.", status_code=400)
             _, flat = render_blocks(c, pid, 0, {"n": 0})
-            results = [_apply_content_update(c, pid, flat, u) for u in content_updates]
+            results = [_apply_content_update(c, pid, flat, u, allow_deleting_content)
+                       for u in content_updates]
             return {"updated": True, "command": command, "operations": results}
 
         if command == "replace_content":
             if new_str is None:
                 raise ServiceError("replace_content requires 'new_str'.", status_code=400)
             children = c.block_children_all(pid)
-            has_child_page = any(b.get("type") in ("child_page", "child_database") for b in children)
-            if has_child_page and not allow_deleting_content:
-                raise ServiceError(
-                    "replace_content would delete child pages/databases. Set "
-                    "allow_deleting_content=true to proceed.",
-                    status_code=400,
-                )
+            flat_top = [{"id": b["id"], "type": b.get("type"),
+                         "text": (b.get(b.get("type"), {}) or {}).get("title", ""),
+                         "has_children": b.get("has_children", False)}
+                        for b in children]
+            protected = _collect_protected(c, flat_top, list(range(len(flat_top))))
+            if protected and not allow_deleting_content:
+                raise ServiceError(_child_guard_msg(protected), status_code=400)
             for b in children:
                 c.delete_block(b["id"])
             new_blocks = markdown_to_blocks(new_str)
@@ -1479,6 +1572,209 @@ def op_update_page(settings: Settings, *, page_id: str, command: str,
             )
 
         raise ServiceError(f"Unknown update-page command '{command}'.", status_code=400)
+
+
+# ===========================================================================
+# Block-ID primitives — deterministic structural ops (claude.ai's connector has
+# none of these). Target blocks by their unique id from notion_list_blocks /
+# notion_fetch's `blocks` list, NOT by text match. The safe way to delete
+# duplicates or restructure nesting.
+# ===========================================================================
+def _block_summary(b: dict, parent_id: str | None, depth: int) -> dict:
+    t = b.get("type")
+    data = b.get(t, {}) if isinstance(b.get(t), dict) else {}
+    text = rich_text_plain(data.get("rich_text"))
+    if not text and t in ("child_page", "child_database"):
+        text = data.get("title", "")
+    return {"id": b["id"], "type": t, "text": text,
+            "has_children": b.get("has_children", False),
+            "parent_id": parent_id, "depth": depth}
+
+
+def _list_blocks_recursive(c: NotionClient, block_id: str, parent_id: str,
+                           depth: int, counter: dict) -> list[dict]:
+    out: list[dict] = []
+    if depth >= _MAX_CHILD_DEPTH:
+        return out
+    for b in c.block_children_all(block_id):
+        if counter["n"] >= _MAX_TOTAL_BLOCKS:
+            break
+        counter["n"] += 1
+        out.append(_block_summary(b, parent_id, depth))
+        if b.get("has_children") and b.get("type") not in ("child_page", "child_database"):
+            out.extend(_list_blocks_recursive(c, b["id"], b["id"], depth + 1, counter))
+    return out
+
+
+def op_list_blocks(settings: Settings, *, page_id: str, recursive: bool = False,
+                   start_cursor: str | None = None, **_ignored) -> dict:
+    """List a page/block's children as {id, type, text, has_children, parent_id, depth}.
+
+    recursive=false returns one paginated page of direct children (pass next_cursor
+    back as start_cursor). recursive=true walks the whole subtree (bounded).
+    """
+    pid = extract_id(page_id)
+    with NotionClient(settings) as c:
+        if recursive:
+            blocks = _list_blocks_recursive(c, pid, pid, 0, {"n": 0})
+            return {"page_id": pid, "blocks": blocks, "has_more": False, "next_cursor": None}
+        data = c.block_children(pid, start_cursor=start_cursor)
+        blocks = [_block_summary(b, pid, 0) for b in data.get("results", [])]
+        nc = data.get("next_cursor") if data.get("has_more") else None
+        return {"page_id": pid, "blocks": blocks, "has_more": nc is not None, "next_cursor": nc}
+
+
+def _normalize_block(b: dict) -> dict:
+    """Tag a typed Notion block object with object:"block" (recursively for children)."""
+    if not isinstance(b, dict):
+        raise ServiceError("Each block must be a typed Notion block object.", status_code=400)
+    out = dict(b)
+    out.setdefault("object", "block")
+    t = out.get("type")
+    if t and isinstance(out.get(t), dict):
+        data = dict(out[t])
+        if isinstance(data.get("children"), list):
+            data["children"] = [_normalize_block(ch) for ch in data["children"]]
+            out[t] = data
+    return out
+
+
+def op_append_blocks(settings: Settings, *, parent_id: str, blocks: list[dict],
+                     after: str | None = None, **_ignored) -> dict:
+    """Append typed Notion block objects under a parent (native nesting; no markdown
+    round-trip). `after` places them after an existing child block by id."""
+    if not blocks:
+        raise ServiceError("append_blocks requires a non-empty 'blocks' list.", status_code=400)
+    pid = extract_id(parent_id)
+    children = [_normalize_block(b) for b in blocks]
+    with NotionClient(settings) as c:
+        after_id = extract_id(after) if after else None
+        res = c.append_children(pid, children, after=after_id)
+        results = res.get("results", [])
+        return {"appended": True, "parent_id": pid, "after": after_id,
+                "added_blocks": len(results),
+                "block_ids": [r.get("id") for r in results]}
+
+
+def _block_update_body(block: dict) -> dict:
+    """Reduce a block object to the {type: data} payload PATCH /blocks/{id} accepts."""
+    b = dict(block)
+    for k in ("object", "id", "has_children", "parent", "created_time",
+              "last_edited_time", "created_by", "last_edited_by"):
+        b.pop(k, None)
+    out: dict = {}
+    if "archived" in b:
+        out["archived"] = b.pop("archived")
+    t = b.pop("type", None)
+    if t and t in b:
+        out[t] = b[t]
+    else:
+        out.update(b)
+    if not out:
+        raise ServiceError("update_block needs a block payload (e.g. {\"paragraph\": "
+                           "{\"rich_text\": [...]}}).", status_code=400)
+    return out
+
+
+def op_update_block(settings: Settings, *, block_id: str, block: dict, **_ignored) -> dict:
+    if not block or not isinstance(block, dict):
+        raise ServiceError("update_block requires a 'block' object.", status_code=400)
+    bid = extract_id(block_id)
+    body = _block_update_body(block)
+    with NotionClient(settings) as c:
+        res = c.update_block(bid, body)
+        return {"updated": True, "block_id": bid, "type": res.get("type")}
+
+
+def op_delete_blocks(settings: Settings, *, block_ids: list[str],
+                     allow_deleting_content: bool = False, **_ignored) -> dict:
+    """Delete specific blocks by id (deterministic; only the listed blocks). Guards
+    child pages/databases the same way as update_content."""
+    if not block_ids:
+        raise ServiceError("delete_blocks requires a non-empty 'block_ids' list.", status_code=400)
+    ids = [extract_id(b) for b in block_ids]
+    with NotionClient(settings) as c:
+        flat = []
+        for bid in ids:
+            blk = c.retrieve_block(bid)
+            t = blk.get("type")
+            flat.append({"id": bid, "type": t,
+                         "text": (blk.get(t, {}) or {}).get("title", ""),
+                         "has_children": blk.get("has_children", False)})
+        protected = _collect_protected(c, flat, list(range(len(flat))))
+        if protected and not allow_deleting_content:
+            raise ServiceError(_child_guard_msg(protected), status_code=400)
+        results: dict = {}
+        for bid in ids:
+            try:
+                c.delete_block(bid)
+                results[bid] = "deleted"
+            except ServiceError as e:
+                results[bid] = f"error: {e.message}"
+        deleted = [b for b, v in results.items() if v == "deleted"]
+        return {"deleted": deleted, "results": results, "count": len(deleted)}
+
+
+def _writable_block_data(data: dict) -> dict:
+    """Strip a read-shape block's type-data to fields the create/append API accepts."""
+    data = data or {}
+    out: dict = {}
+    if data.get("rich_text") is not None:
+        out["rich_text"] = [_writable_token(tok) for tok in data["rich_text"]]
+    for k in ("checked", "color", "language", "icon", "is_toggleable", "expression",
+              "type", "external", "url", "table_width", "has_column_header",
+              "has_row_header", "cells"):
+        if k in data:
+            out[k] = data[k]
+    if isinstance(data.get("caption"), list):
+        out["caption"] = [_writable_token(tok) for tok in data["caption"]]
+    if isinstance(data.get("cells"), list):
+        out["cells"] = [[_writable_token(tok) for tok in cell] for cell in data["cells"]]
+    return out
+
+
+def _copy_subtree(c: NotionClient, block_id: str, depth: int = 0) -> dict:
+    blk = c.retrieve_block(block_id)
+    t = blk.get("type")
+    payload: dict = {"object": "block", "type": t, t: _writable_block_data(blk.get(t, {}))}
+    if (blk.get("has_children") and t not in ("child_page", "child_database")
+            and depth < _MAX_CHILD_DEPTH):
+        kids = [_copy_subtree(c, ch["id"], depth + 1) for ch in c.block_children_all(block_id)]
+        if kids:
+            payload[t] = dict(payload[t])
+            payload[t]["children"] = kids
+    return payload
+
+
+def op_move_blocks(settings: Settings, *, block_ids: list[str],
+                   after_block_id: str, **_ignored) -> dict:
+    """Move blocks to sit after another block. The REST API (2022-06-28) has no native
+    move, so this copies each block's full subtree after the target, then deletes the
+    originals (children preserved by value; ids change)."""
+    if not block_ids:
+        raise ServiceError("move_blocks requires 'block_ids'.", status_code=400)
+    if not after_block_id:
+        raise ServiceError("move_blocks requires 'after_block_id'.", status_code=400)
+    ids = [extract_id(b) for b in block_ids]
+    after_id = extract_id(after_block_id)
+    with NotionClient(settings) as c:
+        after_blk = c.retrieve_block(after_id)
+        parent = after_blk.get("parent", {})
+        parent_id = parent.get("page_id") or parent.get("block_id")
+        if not parent_id:
+            raise ServiceError("Could not resolve the parent of after_block_id.", status_code=400)
+        moved = []
+        cur_after = after_id
+        for bid in ids:
+            subtree = _copy_subtree(c, bid)
+            res = c.append_children(parent_id, [subtree], after=cur_after)
+            new_id = (res.get("results") or [{}])[0].get("id")
+            moved.append({"old_id": bid, "new_id": new_id})
+            if new_id:
+                cur_after = new_id
+        for bid in ids:
+            c.delete_block(bid)
+        return {"moved": moved, "count": len(moved), "parent_id": parent_id}
 
 
 # ---------------------------------------------------------------------------
@@ -1626,72 +1922,350 @@ def _save_reference_with(c, title: str, entry_md: str, new_blocks: list, dry_run
     }
 
 
-def _apply_content_update(c: NotionClient, pid: str, flat: list[dict], update: dict) -> dict:
-    old = update.get("old_str", "")
-    new = update.get("new_str", "")
-    if not old:
-        raise ServiceError("Each content update needs a non-empty old_str.", status_code=400)
-
-    anchor = _find_anchor_block(flat, old)
-    # Append case: new_str extends old_str -> append the remainder after the anchor.
-    if new.startswith(old) and len(new) > len(old):
-        remainder = new[len(old):].strip("\n")
-        if not anchor:
-            raise ServiceError(f"Could not find old_str anchor to append after: {old[:60]!r}", status_code=400)
-        blocks = markdown_to_blocks(remainder)
-        c.append_children(pid, blocks, after=anchor["id"])
-        return {"op": "append", "after": anchor["id"], "added_blocks": len(blocks)}
-    # Delete case.
-    if new.strip() == "":
-        targets = _find_span_blocks(flat, old)
-        for b in targets:
-            c.delete_block(b["id"])
-        return {"op": "delete", "deleted_blocks": [b["id"] for b in targets]}
-    # In-place replace (single block).
-    if anchor:
-        c.update_block(anchor["id"], _block_text_update(anchor, new))
-        return {"op": "replace", "block": anchor["id"]}
-    raise ServiceError(f"Could not locate old_str to update: {old[:60]!r}", status_code=400)
-
-
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def _find_anchor_block(flat: list[dict], old: str) -> dict | None:
-    """Find the block matching the LAST non-empty line of old_str."""
-    last_line = ""
-    for ln in reversed(old.split("\n")):
-        if ln.strip():
-            last_line = _norm(ln)
-            break
-    if not last_line:
-        return None
-    for b in flat:
-        if _norm(b.get("text", "")) and (last_line in _norm(b.get("text", "")) or _norm(b.get("text", "")) in last_line):
-            anchor = b
-        # keep the last match
-    anchor = None
-    for b in flat:
-        bt = _norm(b.get("text", ""))
-        if bt and (last_line in bt or bt in last_line):
-            anchor = b
-    return anchor
+def _to_plain(line: str) -> str:
+    """Normalize an inline-markdown line to its plain text (strip **bold** etc.).
+
+    So `old_str` matches whether the model copied the plain `text` of a block or a
+    marked-up snippet from `content_markdown`. Reuses the inline parser so the
+    stripping logic stays in one place; `_tok_plain` reads the write-shape tokens it
+    produces (text.content) the same way it reads read-shape tokens (plain_text).
+    """
+    return "".join(_tok_plain(tok) for tok in _inline_to_rich(line))
 
 
-def _find_span_blocks(flat: list[dict], old: str) -> list[dict]:
-    lines = [_norm(ln) for ln in old.split("\n") if ln.strip()]
-    out = []
-    for b in flat:
-        bt = _norm(b.get("text", ""))
-        if bt and any(ln in bt or bt in ln for ln in lines):
-            out.append(b)
+def _old_plain(old: str) -> str:
+    """Plain-text form of (possibly multi-line) old_str, newlines preserved."""
+    return "\n".join(_to_plain(ln) for ln in old.split("\n"))
+
+
+def _find_all_exact(hay: str, needle: str) -> list[tuple[int, int]]:
+    """Non-overlapping exact occurrences of needle in hay as (start, end) offsets."""
+    if not needle:
+        return []
+    out: list[tuple[int, int]] = []
+    i = hay.find(needle)
+    while i != -1:
+        out.append((i, i + len(needle)))
+        i = hay.find(needle, i + len(needle))
     return out
 
 
-def _block_text_update(block: dict, new_text: str) -> dict:
+def _index_matches(flat: list[dict], old: str) -> list[dict]:
+    """Locate every place old_str occurs, block-boundary aware.
+
+    Returns a list of match dicts:
+      single (within one block):  {kind:"single", idxs:[i], char_start, char_end, whole_block}
+      cross  (contiguous run):    {kind:"cross", idxs:[i, i+1, ...]}
+    Single matches are found first (exact substring, then a whitespace-tolerant
+    whole-block fallback). Cross matches are only formed when no single match exists
+    and old_str spans a run of WHOLE blocks (each line equal to one block), which is
+    what keeps a short repeated word from being treated as a multi-block range.
+    """
+    op_plain = _old_plain(old)
+    op_norm = _norm(op_plain)
+
+    # Pass 1: exact substring within a single block (gives real char offsets).
+    single: list[dict] = []
+    for i, e in enumerate(flat):
+        bp = e.get("text", "")
+        if not bp:
+            continue
+        for cs, ce in _find_all_exact(bp, op_plain):
+            single.append({"kind": "single", "idxs": [i], "char_start": cs,
+                           "char_end": ce, "whole_block": _norm(bp) == op_norm})
+    if single:
+        return single
+
+    # Pass 1b: whitespace-tolerant WHOLE-block equality (old_str is a full block,
+    # whitespace differs). Span = the whole block, so delete/replace stay safe.
+    for i, e in enumerate(flat):
+        bp = e.get("text", "")
+        if bp and _norm(bp) == op_norm and op_norm:
+            single.append({"kind": "single", "idxs": [i], "char_start": 0,
+                           "char_end": len(bp), "whole_block": True})
+    if single:
+        return single
+
+    # Pass 2: cross-block contiguous run of whole blocks (multi-line old_str only).
+    lines_all = [_norm(_to_plain(ln)) for ln in old.split("\n")]
+    while lines_all and lines_all[0] == "":
+        lines_all.pop(0)
+    while lines_all and lines_all[-1] == "":
+        lines_all.pop()
+    cross: list[dict] = []
+    L = len(lines_all)
+    if L >= 2:
+        norms = [_norm(e.get("text", "")) for e in flat]
+        i = 0
+        while i + L <= len(flat):
+            if all(norms[i + k] == lines_all[k] for k in range(L)) and any(lines_all):
+                cross.append({"kind": "cross", "idxs": list(range(i, i + L))})
+                i += L
+            else:
+                i += 1
+    return cross
+
+
+def _classify_op(old: str, new: str) -> str:
+    if new.startswith(old) and len(new) > len(old):
+        return "append"
+    if _norm(new) == "":
+        return "delete"
+    return "replace"
+
+
+def _snippet(text: str, cs: int, ce: int, pad: int = 30) -> str:
+    a = max(0, cs - pad)
+    b = min(len(text), ce + pad)
+    lead = "…" if a > 0 else ""
+    trail = "…" if b < len(text) else ""
+    return f"{lead}{text[a:cs]}»{text[cs:ce]}«{text[ce:b]}{trail}"
+
+
+def _multi_match_msg(flat: list[dict], matches: list[dict]) -> str:
+    lines = []
+    for k, m in enumerate(matches, 1):
+        if m["kind"] == "single":
+            e = flat[m["idxs"][0]]
+            lines.append(f"  [{k}] block {e['id']} ({e['type']}): "
+                         f"{_snippet(e.get('text', ''), m['char_start'], m['char_end'])}")
+        else:
+            ids = ", ".join(flat[i]["id"] for i in m["idxs"])
+            lines.append(f"  [{k}] blocks {ids}")
+    return (
+        f"old_str matched {len(matches)} places; refusing to guess which. Set "
+        "replace_all_matches=true to apply to all, narrow old_str to a unique snippet, "
+        "or use notion_delete_blocks with specific block ids for structural deletes.\n"
+        + "\n".join(lines)
+    )
+
+
+def _child_guard_msg(protected: list[dict]) -> str:
+    items = "; ".join(f"{p['type']} {p['id']} ({p['title']})" for p in protected)
+    return (
+        f"This update would delete {len(protected)} child page(s)/database(s): {items}. "
+        "Set allow_deleting_content=true to proceed, or use notion_delete_blocks."
+    )
+
+
+def _walk_protected(c: NotionClient, block_id: str, depth: int) -> list[dict]:
+    if depth >= _MAX_CHILD_DEPTH:
+        return []
+    out: list[dict] = []
+    for ch in c.block_children_all(block_id):
+        t = ch.get("type")
+        if t in ("child_page", "child_database"):
+            out.append({"id": ch["id"], "type": t, "title": (ch.get(t) or {}).get("title", "")})
+        if ch.get("has_children"):
+            out.extend(_walk_protected(c, ch["id"], depth + 1))
+    return out
+
+
+def _collect_protected(c: NotionClient, flat: list[dict], idxs: list[int]) -> list[dict]:
+    """Child pages/databases that deleting the given blocks (and their subtrees) removes."""
+    out: list[dict] = []
+    for i in idxs:
+        e = flat[i]
+        if e["type"] in ("child_page", "child_database"):
+            out.append({"id": e["id"], "type": e["type"], "title": e.get("text") or ""})
+        if e.get("has_children"):
+            out.extend(_walk_protected(c, e["id"], 0))
+    return out
+
+
+def _writable_ann(ann: dict) -> dict:
+    keep = ("bold", "italic", "strikethrough", "underline", "code", "color")
+    return {k: ann[k] for k in keep if k in ann}
+
+
+def _clone_trim_text(tok: dict, content: str) -> dict:
+    txt: dict = {"content": content}
+    link = (tok.get("text") or {}).get("link")
+    if link:
+        txt["link"] = link
+    out: dict = {"type": "text", "text": txt}
+    ann = tok.get("annotations")
+    if ann:
+        wa = _writable_ann(ann)
+        if wa:
+            out["annotations"] = wa
+    return out
+
+
+def _writable_token(tok: dict) -> dict:
+    """Strip a read-shape rich_text token down to what the REST write API accepts."""
+    ttype = tok.get("type", "text")
+    if ttype == "equation":
+        out: dict = {"type": "equation",
+                     "equation": {"expression": (tok.get("equation") or {}).get("expression", "")}}
+    elif ttype == "mention":
+        out = {"type": "mention", "mention": copy.deepcopy(tok.get("mention", {}))}
+    else:
+        content = (tok.get("text") or {}).get("content")
+        if content is None:
+            content = tok.get("plain_text", "")
+        return _clone_trim_text(tok, content)
+    ann = tok.get("annotations")
+    if ann:
+        wa = _writable_ann(ann)
+        if wa:
+            out["annotations"] = wa
+    return out
+
+
+def _tok_plain(tok: dict) -> str:
+    ptext = tok.get("plain_text")
+    if ptext is None:
+        ptext = (tok.get("text") or {}).get("content", "")
+    return ptext
+
+
+def _slice_rich_text(rich: list[dict], start: int, end: int) -> list[dict]:
+    """Rich-text tokens covering plain-text [start, end), trimming boundary tokens
+    while preserving each token's annotations/link. Refuses to bisect an atomic
+    mention/equation token (raises 400) rather than corrupt it."""
+    out: list[dict] = []
+    pos = 0
+    for tok in rich:
+        ptext = _tok_plain(tok)
+        tlen = len(ptext)
+        tstart, tend = pos, pos + tlen
+        pos = tend
+        if tlen == 0 or tend <= start or tstart >= end:
+            continue
+        a, b = max(start, tstart), min(end, tend)
+        if a == tstart and b == tend:
+            out.append(_writable_token(tok))
+        elif tok.get("type", "text") != "text":
+            raise ServiceError(
+                "old_str splits an inline mention/equation; widen old_str to whole tokens.",
+                status_code=400,
+            )
+        else:
+            out.append(_clone_trim_text(tok, ptext[a - tstart:b - tstart]))
+    return out
+
+
+def _rebuild_rich_text_update(block: dict, cs: int, ce: int, new_md: str) -> dict:
+    """Splice [cs, ce) of a block's rich_text with new_md, preserving the rest of the
+    block's text, its inline annotations, and all other block fields (checked, color,
+    language, icon). new_md is parsed as inline markdown (literal for code)."""
     t = block.get("type", "paragraph")
-    return {t: {"rich_text": _inline_to_rich(new_text)}}
+    data = block.get(t, {}) or {}
+    rich = data.get("rich_text", []) or []
+    total = sum(len(_tok_plain(tok)) for tok in rich)
+    before = _slice_rich_text(rich, 0, cs)
+    after = _slice_rich_text(rich, ce, total)
+    if not new_md:
+        mid: list[dict] = []
+    elif t == "code":
+        mid = [{"type": "text", "text": {"content": new_md}}]
+    else:
+        mid = _inline_to_rich(new_md)
+    return {t: {"rich_text": before + mid + after}}
+
+
+def _apply_content_update(c: NotionClient, pid: str, flat: list[dict], update: dict,
+                          call_allow_deleting: bool = False) -> dict:
+    """Apply ONE {old_str, new_str, ...} edit, block-boundary aware and fail-safe.
+
+    Guards (mirrors claude.ai, then exceeds it):
+      * multi-match  -> 409 unless replace_all_matches (lists each match + snippet)
+      * cross-block  -> 400 unless allow_cross_block (delete only; replace rejected)
+      * child-page   -> 400 unless allow_deleting_content (lists the pages/databases)
+    Every target is validated BEFORE any mutation, so a guard never leaves a
+    half-applied edit.
+    """
+    old = update.get("old_str") or ""
+    new = update.get("new_str")
+    if new is None:
+        new = ""
+    if not _norm(old):
+        raise ServiceError(
+            "Each content update needs a non-empty old_str (whitespace-only is rejected).",
+            status_code=400,
+        )
+    replace_all = bool(update.get("replace_all_matches", False))
+    allow_cross = bool(update.get("allow_cross_block", False))
+    allow_deleting = bool(update.get("allow_deleting_content", call_allow_deleting))
+
+    op = _classify_op(old, new)
+    matches = _index_matches(flat, old)
+    total = len(matches)
+    if total == 0:
+        raise ServiceError(f"old_str not found on page: {old[:80]!r}", status_code=404)
+    if total > 1 and not replace_all:
+        raise ServiceError(_multi_match_msg(flat, matches), status_code=409)
+    targets = matches if replace_all else [matches[0]]
+
+    # ---- validate ALL targets before mutating anything ----
+    protected: list[dict] = []
+    for t in targets:
+        if t["kind"] == "cross":
+            if op != "delete":
+                raise ServiceError(
+                    "old_str spans multiple blocks; only deletion (empty new_str) is "
+                    "supported across blocks. Narrow old_str to one block to replace/append, "
+                    "or use the block-id tools for structural changes.",
+                    status_code=400,
+                )
+            if not allow_cross:
+                ids = ", ".join(flat[i]["id"] for i in t["idxs"])
+                raise ServiceError(
+                    f"old_str can only be satisfied by spanning {len(t['idxs'])} blocks "
+                    f"({ids}) — a multi-block range delete. Set allow_cross_block=true on this "
+                    "content_updates item to confirm, or use notion_delete_blocks by id.",
+                    status_code=400,
+                )
+            protected += _collect_protected(c, flat, t["idxs"])
+        elif op == "delete" and t.get("whole_block"):
+            protected += _collect_protected(c, flat, t["idxs"])
+    if op == "delete" and protected and not allow_deleting:
+        raise ServiceError(_child_guard_msg(protected), status_code=400)
+
+    # ---- apply ----
+    if op == "append":
+        remainder = new[len(old):].strip("\n")
+        blocks = markdown_to_blocks(remainder)
+        anchors = []
+        for t in targets:
+            anchor_id = flat[t["idxs"][-1]]["id"]
+            c.append_children(pid, blocks, after=anchor_id)
+            anchors.append(anchor_id)
+        return {"op": "append", "anchors": anchors, "added_blocks": len(blocks)}
+
+    if op == "delete":
+        # Whole-block (or cross) -> delete the block(s); partial -> splice it out.
+        del_idxs: set[int] = set()
+        spliced: list[str] = []
+        for t in targets:
+            if t["kind"] == "cross" or t.get("whole_block"):
+                del_idxs.update(t["idxs"])
+            else:
+                i = t["idxs"][0]
+                bid = flat[i]["id"]
+                block = c.retrieve_block(bid)
+                c.update_block(bid, _rebuild_rich_text_update(block, t["char_start"], t["char_end"], ""))
+                spliced.append(bid)
+        deleted = []
+        for i in sorted(del_idxs, reverse=True):  # bottom-up keeps positions stable
+            c.delete_block(flat[i]["id"])
+            deleted.append(flat[i]["id"])
+        return {"op": "delete", "deleted_blocks": deleted, "spliced_blocks": spliced}
+
+    # in-place replace (single-block targets only)
+    blocks_changed = []
+    for t in targets:
+        i = t["idxs"][0]
+        bid = flat[i]["id"]
+        block = c.retrieve_block(bid)
+        c.update_block(bid, _rebuild_rich_text_update(block, t["char_start"], t["char_end"], new))
+        blocks_changed.append(bid)
+    return {"op": "replace", "blocks": blocks_changed}
 
 
 def _apply_icon_cover(body: dict, icon: str | None, cover: str | None) -> None:
