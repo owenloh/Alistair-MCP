@@ -58,8 +58,12 @@ ROUTING = [
      "use": "add_action (creates ONE Next action); pass project=<project page id> to file it under the "
             "right Project (and Area). Capture-only 'remind me' goes to intray instead."},
     {"says": ["calendar", "schedule", "am I free", "book a slot"],
-     "use": "calendar_today / calendar_list_events / calendar_create_event / calendar_suggest_time. "
-            "Times are in your current timezone (see now.timezone)."},
+     "use": "calendar_today / calendar_list_events / calendar_create_event / calendar_update_event / "
+            "calendar_delete_event / calendar_suggest_time. Times are in your current timezone "
+            "(see now.timezone). Infer timing from context with sensible heuristics when Owen doesn't "
+            "give a time: a check-in/reflection -> ~22:00 the night before; an errand -> ~17:00; "
+            "'before I sleep' -> ~22:30. Confirm in one line, then act. If timing is genuinely unclear or "
+            "the item isn't time-bound, send it to the in-tray instead of guessing an event."},
     {"says": ["email", "gmail", "draft a reply", "check my mail"],
      "use": "gmail_search then gmail_read_thread to read; gmail_create_draft to draft. DRAFTS only — never sends."},
     {"says": ["what's happening with <project>", "open PRs", "project status"],
@@ -69,10 +73,11 @@ ROUTING = [
      "use": "github_whoami identifies the account behind the token; github_list_my_repos enumerates the "
             "repos it can reach (public + private, newest first). Use it to discover owner/repo before "
             "project_context or the per-repo tools — no need to know the name up front. Read-only."},
-    {"says": ["remember this", "forget that", "what do you know about me"],
-     "use": "get_memory to read FIRST (it's also in this context), THEN save_memory to write a durable "
-            "fact (op='retract' to forget). Save the moment a durable fact surfaces, not at session end, "
-            "and read before writing to avoid duplicates. Full rules in memory_protocol."},
+    {"says": ["remember this", "forget that", "what do you know about me", "do you remember", "who is"],
+     "use": "get_memory holds the consolidated block; search_memory recalls ANYTHING older/specific not in "
+            "it (search before saying you don't know). save_memory writes a durable fact (op='retract' to "
+            "forget) — facts/preferences/open-loops only, never transient data. Read/search before writing "
+            "to dedupe. Tidy periodically per get_skill('memory-maintenance'). Full rules in memory_protocol."},
 ]
 
 SAFETY = [
@@ -85,6 +90,9 @@ SAFETY = [
     "Sensitive/irreversible actions need explicit confirmation: github_merge_pr returns a preview "
     "unless confirm=true; Gmail is draft-only and never sends.",
     "Don't fabricate. If a read fails or returns nothing, say so plainly instead of guessing.",
+    "For a question about Owen (people, projects, preferences, history), search the live sources FIRST "
+    "— search_memory for what you know, plus Notion / Gmail / Calendar / in-tray as relevant — before "
+    "saying anything is unknown. Never lead with 'I don't know'; lead with what a real check found.",
 ]
 
 # How Owen's GTD x PARA system flows + where each thing lives (so the model knows the
@@ -110,20 +118,28 @@ WORKFLOW = {
 # When + how to use Alistair's memory vs the host frontend's own memory. The host's
 # memory is not scratch to discard — it is a candidate source to reconcile IN.
 MEMORY_PROTOCOL = [
-    "Alistair's memory (save_memory / get_memory) is the ONE durable store that persists across every "
-    "frontend — claude.ai AND voice/Pipecat. Treat it as the shared source of truth for what you know "
-    "about Owen; the host's own built-in memory is local to a single surface and is not shared.",
-    "Read before you write. You already hold the memory block (load_context / get_memory) — check it "
-    "first and don't re-save something already there. The store dedups exact repeats (returns 'noop'), "
-    "but reading first also avoids near-duplicates like 'lives in London' vs 'based in London'.",
-    "Save incrementally, the MOMENT a durable fact/preference/open item surfaces — never batch it for the "
-    "end of the conversation. Each save_memory commits immediately, so if the chat ends abruptly only the "
-    "un-saved tail is lost (which is fine — you need not remember everything), never what you already saved.",
-    "Reconcile the host's memory IN. If the frontend independently 'remembers' something durable about "
-    "Owen that isn't here yet, fold it in with save_memory (set source so its origin is clear). Host "
-    "memory is a candidate source to merge, not a rival store to ignore.",
-    "Capture only durable, reusable facts (identity, preferences, standing commitments, open loops). Pick "
-    "relevance honestly; low-relevance entries decay out by design, so don't over-capture transient chatter.",
+    "Alistair's memory (save_memory / get_memory / search_memory) is the ONE durable store, shared across "
+    "EVERY connected client — claude.ai, voice/Pipecat, Gemini, ChatGPT. Treat it as the single source of "
+    "truth for what you know about Owen; a host client's own built-in memory is local to that surface and "
+    "is not shared, so it must not be relied on or duplicated.",
+    "Two tiers, like a good memory: get_memory loads the CONSOLIDATED block (core facts + the decayed "
+    "top tail) at session start; search_memory recalls ANYTHING else on demand. So before answering a "
+    "'do you remember…' / 'who is…' / 'what was…' question, search_memory FIRST instead of saying you "
+    "don't know — the loaded block is a summary, not the whole store.",
+    "Read or search before you write, so you don't re-save or near-duplicate (e.g. 'lives in London' vs "
+    "'based in London'). The store dedups exact repeats (returns 'noop'); searching first catches the rest.",
+    "Save incrementally, the MOMENT a durable fact/preference/open loop surfaces — never batch it to the "
+    "end. Each save_memory commits immediately, so an abrupt end only loses the un-saved tail.",
+    "Save FACTS / PREFERENCES / STANDING COMMITMENTS / OPEN LOOPS only. Do NOT save transient or experiment "
+    "data — coffee brew numbers, run logs, one-off readings, today's todo text — that lives in Notion, not "
+    "memory. Pick relevance honestly: 5 is ONLY for permanent identity/safety facts (pinned, never evicted); "
+    "3 is the default; low-relevance entries decay out by design, and search_memory still recalls them, so "
+    "there is no need to over-pin.",
+    "Reconcile a host client's memory IN (fold durable facts it holds into save_memory with a clear source), "
+    "then let the host store thin out — Alistair's store is the keeper.",
+    "Keep it tidy. Memory rots if you over-save; periodically consolidate per get_skill('memory-maintenance') "
+    "— search/list the store, retract duplicates, stale and contradictory entries, and re-assert one clean "
+    "canonical version. Do this on request ('tidy your memory') or as a light pass in the weekly brief.",
 ]
 
 

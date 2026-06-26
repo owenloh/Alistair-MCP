@@ -31,13 +31,18 @@ from .skills import list_slugs, load_skill
 SERVER_NAME = "alistair_assistant"  # snake_case: Gemini rejects '-' in server names
 
 INSTRUCTIONS = (
-    "You are Alistair, Owen's operations assistant. Call load_context FIRST every "
-    "session to load persona, routing, the GTD/PARA workflow, the ID registry, safety "
-    "rules, the skill index, the memory protocol and live memory. Read get_memory at the "
-    "start; save_memory the moment you learn something durable about Owen (read first to "
-    "avoid duplicates, save incrementally — don't wait for the end). Notion is sacred: "
-    "load the notion-master skill before any Notion write, and never overwrite a whole "
-    "page. Be direct and concise."
+    "You are Alistair, Owen's operations assistant (direct, concise, brutally honest, no "
+    "em dashes). This connector is the SAME Alistair across every client it's connected to "
+    "(claude.ai, voice, Gemini, ChatGPT) — its tools, not this client's own features, are "
+    "the shared brain. On first use this session: call load_context (persona + voice + "
+    "routing + GTD/PARA workflow + ID registry + safety + skill index) and get_memory. "
+    "MEMORY: this connector's store is the ONE shared source of truth for what you know "
+    "about Owen — do NOT rely on this client's own memory. get_memory loads the consolidated "
+    "block; use search_memory to recall anything older/specific that isn't in it. Save "
+    "durable facts/preferences/open-loops with save_memory the moment they surface (read or "
+    "search first to dedupe); never save transient or experiment data — that goes to Notion. "
+    "Notion is sacred: load the notion-master skill before any Notion write, edit surgically, "
+    "and never overwrite a whole page."
 )
 
 # OAuth turns on automatically once a public base URL is known (Railway sets
@@ -117,9 +122,10 @@ def load_context() -> dict:
 @mcp.tool(
     name="get_memory",
     description=(
-        "Load what Alistair remembers about Owen: a ranked, decayed, token-budgeted memory "
-        "block (durable facts, preferences, context). Call at session start alongside "
-        "load_context. Read-only."
+        "Load what Alistair remembers about Owen: the CONSOLIDATED block (core facts always "
+        "included, the rest ranked by recency x importance, token-budgeted). Call at session "
+        "start alongside load_context. This is a summary, NOT everything — to recall an older "
+        "or specific fact that isn't here, use search_memory. Read-only."
     ),
 )
 def get_memory(top_n: int | None = None, max_tokens: int | None = None) -> dict:
@@ -127,13 +133,30 @@ def get_memory(top_n: int | None = None, max_tokens: int | None = None) -> dict:
 
 
 @mcp.tool(
+    name="search_memory",
+    description=(
+        "Recall ANY stored memory by keyword across the FULL store — not just the consolidated "
+        "block get_memory loads. Use it whenever a relevant older/specific fact might not be in "
+        "the loaded block (people, past projects, preferences, commitments). Empty query returns "
+        "the whole store ranked. Optional type filter: fact|preference|action|summary. Read-only."
+    ),
+)
+def search_memory(query: str | None = None, limit: int = 20, type: str | None = None) -> dict:
+    return _run(lambda: memory_service.op_search_memory(
+        get_settings(), query=query, limit=limit, type_=type))
+
+
+@mcp.tool(
     name="save_memory",
     description=(
-        "The ONLY way to write Alistair's memory. Append a durable fact about Owen when you "
-        "learn something lasting ('from now on…', a preference, background). type is "
-        "fact|preference|action|summary; relevance 1-5 (5 = core, never forgotten). To forget, "
-        "pass op='retract' with the same type+content. Capture-only 'remind me' tasks go to the "
-        "in-tray, not here."
+        "The ONLY way to write Alistair's memory — the shared store every connected client "
+        "(claude.ai, voice, Gemini) reads. Save DURABLE things only: a standing fact, a "
+        "preference, or an open commitment/loop. Do NOT save transient or experiment data "
+        "(coffee numbers, run logs, one-off values) — that belongs in Notion. type is "
+        "fact|preference|action|summary; relevance 1-5, and 5 is ONLY for permanent "
+        "identity/safety facts (pinned, never evicted) — default 3. Read/search first to avoid "
+        "duplicates (writing is append-only + de-duped). To forget, pass op='retract' with the "
+        "same type+content. Capture-only 'remind me' tasks go to the in-tray, not here."
     ),
 )
 def save_memory(content: str, type: str = "fact", relevance: int = 3,
@@ -149,7 +172,8 @@ def save_memory(content: str, type: str = "fact", relevance: int = 3,
     description=(
         "Fetch one Alistair skill's full procedure on demand (the index is in load_context). "
         "Slugs: notion-master (safe-write protocol — load before ANY Notion write), daily-brief, "
-        "notion-references-tray, microsoft-todo-intray."
+        "weekly-brief, notion-references-tray, microsoft-todo-intray, memory-maintenance "
+        "(consolidate/tidy long-term memory)."
     ),
 )
 def get_skill(slug: str) -> dict:

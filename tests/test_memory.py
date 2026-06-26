@@ -152,6 +152,35 @@ check("rejects bad op", expect_error(lambda: m.op_save_memory(s, "x", type_="fac
 s2 = Settings(memory_db_path=s.memory_db_file())
 check("data survives new connection", m.op_get_memory(s2, now=NOW)["total_entries"] == 2)
 
+# === IO: search_memory recalls beyond the loaded top-N block ===
+# Fresh store: 1 core fact + many low-relevance facts so get_memory's tail can't hold them all.
+ss = fresh_settings(memory_top_n=2, memory_max_tokens=200, memory_core_relevance=5)
+m.op_save_memory(ss, "Owen's GitHub owner is owenloh", type_="fact", relevance=5, now=T1)
+for i in range(12):
+    m.op_save_memory(ss, f"Old project number {i} called Catalon-{i}", type_="fact", relevance=2, now=T0)
+loaded = m.op_get_memory(ss, now=NOW)
+check("loaded block is capped (not all 13)", loaded["selected_count"] < 13)
+# the specific old fact is NOT in the loaded block...
+missing = "Catalon-9" not in loaded["memory_block"]
+check("an old low-rel fact is omitted from the loaded block", missing)
+# ...but search_memory recalls it regardless of decay.
+sr = m.op_search_memory(ss, query="Catalon-9", now=NOW)
+check("search recalls the omitted fact as the top hit",
+      sr["returned"] >= 1 and "Catalon-9" in sr["results"][0]["content"])
+check("search reports it searched the full store", sr["total_entries"] == 13)
+# multi-term + the core fact is reachable by keyword too
+core_hit = m.op_search_memory(ss, query="github owner", now=NOW)
+check("search finds the core fact by keyword", any("owenloh" in r["content"] for r in core_hit["results"]))
+# empty query returns the whole store ranked
+allm = m.op_search_memory(ss, query="", limit=100, now=NOW)
+check("empty query returns all entries", allm["returned"] == 13)
+# type filter
+prefs_only = m.op_search_memory(ss, query="", type_="preference", now=NOW)
+check("type filter narrows results", prefs_only["total_entries"] == 0)
+# no match -> empty
+none = m.op_search_memory(ss, query="zzzznomatch", now=NOW)
+check("no-match query returns nothing", none["returned"] == 0 and none["match_count"] == 0)
+
 # --- results ---
 print("=== RESULTS ===")
 ok = True

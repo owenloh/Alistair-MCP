@@ -41,6 +41,14 @@ _LIST_DOC = (
     "Raw dump of every current memory with scores — for inspection/debugging or to "
     "mirror into Notion. Not for normal recall; use /get for that."
 )
+_SEARCH_DOC = (
+    "Recall ANY stored memory by keyword across the FULL store — not just the "
+    "always-loaded /get summary. The loaded block (/get) is capped to the highest-value "
+    "memories; this searches everything, so use it when you need an older or more "
+    "specific fact that may not be in the loaded block. Empty query returns the whole "
+    "store ranked by recency x importance. Optional type filter: fact/preference/action/"
+    "summary."
+)
 
 
 class SaveMemoryRequest(BaseModel):
@@ -55,6 +63,12 @@ class SaveMemoryRequest(BaseModel):
 class GetMemoryRequest(BaseModel):
     top_n: int | None = None
     max_tokens: int | None = None
+
+
+class SearchMemoryRequest(BaseModel):
+    query: str | None = None
+    limit: int = 20
+    type: str | None = None
 
 
 @router.post("/save", summary="Remember a fact", description=_SAVE_DOC)
@@ -74,6 +88,13 @@ def save_memory(body: SaveMemoryRequest) -> dict:
 def get_memory(body: GetMemoryRequest) -> dict:
     return memory_service.op_get_memory(
         get_settings(), top_n=body.top_n, max_tokens=body.max_tokens
+    )
+
+
+@router.post("/search", summary="Recall any memory by keyword", description=_SEARCH_DOC)
+def search_memory(body: SearchMemoryRequest) -> dict:
+    return memory_service.op_search_memory(
+        get_settings(), query=body.query, limit=body.limit, type_=body.type
     )
 
 

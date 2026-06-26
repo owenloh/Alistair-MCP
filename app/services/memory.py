@@ -301,6 +301,79 @@ def op_get_memory(
     }
 
 
+def _match_score(entry: dict, terms: list[str]) -> float:
+    """How well an entry matches the query terms (0 = no match). Substring-on-content/
+    tags; more matched terms ranks higher, then relevance scales it."""
+    hay = (_norm(entry.get("content")) + " " + _norm(entry.get("tags"))).strip()
+    if not terms:
+        return 1.0
+    hits = sum(1 for t in terms if t and t in hay)
+    if not hits:
+        return 0.0
+    coverage = hits / len(terms)
+    return coverage * (1.0 + _clamp_rel(entry.get("relevance")) / REL_DIVISOR)
+
+
+def op_search_memory(
+    settings: Settings,
+    query: str | None = None,
+    limit: int = 20,
+    type_: str | None = None,
+    now: datetime | None = None,
+) -> dict:
+    """On-demand recall over the FULL store (not just the loaded block).
+
+    Returns every entry matching `query` (case-insensitive token match on content/tags),
+    ranked by match strength then recency-x-relevance, REGARDLESS of decay — so older or
+    low-relevance facts that `get_memory` omits are still retrievable. An empty query
+    returns the whole store ranked by score (acts as a full list). Optional `type_`
+    filters to one of fact/preference/action/summary.
+    """
+    now = now or datetime.now(timezone.utc)
+    conn = _connect(settings.memory_db_file())
+    try:
+        entries = _fold(_all_rows(conn))
+    finally:
+        conn.close()
+
+    if type_:
+        type_ = type_.strip().lower()
+        entries = [e for e in entries if e["type"] == type_]
+
+    terms = [t for t in _norm(query).split(" ") if t] if query else []
+    scored = []
+    for e in entries:
+        ms = _match_score(e, terms)
+        if ms <= 0:
+            continue
+        e["match"] = round(ms, 4)
+        e["score"] = round(_score(e, now, settings.memory_tau_days), 6)
+        scored.append(e)
+    # rank: match strength first, then recency x relevance
+    scored.sort(key=lambda e: (-e["match"], -e["score"], e["id"]))
+    limit = max(1, int(limit or 20))
+    top = scored[:limit]
+    return {
+        "query": query or "",
+        "type": type_,
+        "match_count": len(scored),
+        "returned": len(top),
+        "total_entries": len(entries),
+        "results": [
+            {
+                "type": e["type"],
+                "content": e["content"],
+                "relevance": e["relevance"],
+                "created_at": e["created_at"],
+                "match": e["match"],
+                "score": e["score"],
+                "tags": e["tags"],
+            }
+            for e in top
+        ],
+    }
+
+
 def op_list_memory(settings: Settings, now: datetime | None = None) -> dict:
     """Raw folded view (debug + the basis for the one-way Notion mirror)."""
     now = now or datetime.now(timezone.utc)

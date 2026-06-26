@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     memory_db_path: str | None = None  # explicit override for the SQLite file
     memory_tau_days: float = 30.0      # decay constant (half-life ~= 21d)
     memory_core_relevance: int = 5     # relevance >= this is pinned, never evicted
-    memory_top_n: int = 8              # cap on the decayed (non-core) tail
+    memory_top_n: int = 12             # cap on the decayed tail (search_memory recalls the rest)
     memory_max_tokens: int = 1200      # token budget for the rendered memory block
 
     @property
