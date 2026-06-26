@@ -73,11 +73,14 @@ ROUTING = [
      "use": "github_whoami identifies the account behind the token; github_list_my_repos enumerates the "
             "repos it can reach (public + private, newest first). Use it to discover owner/repo before "
             "project_context or the per-repo tools — no need to know the name up front. Read-only."},
-    {"says": ["remember this", "forget that", "what do you know about me", "do you remember", "who is"],
-     "use": "get_memory holds the consolidated block; search_memory recalls ANYTHING older/specific not in "
-            "it (search before saying you don't know). save_memory writes a durable fact (op='retract' to "
-            "forget) — facts/preferences/open-loops only, never transient data. Read/search before writing "
-            "to dedupe. Tidy periodically per get_skill('memory-maintenance'). Full rules in memory_protocol."},
+    {"says": ["remember this", "forget that", "what do you know about me", "do you remember", "who is",
+              "tell me about myself", "who am I"],
+     "use": "Any factual recall about Owen -> retrieve from Alistair FIRST (get_memory holds the consolidated "
+            "block; search_memory recalls anything older/specific) and answer from THIS store, canonical over "
+            "any local/built-in memory (which may be stale). Don't answer self-recall from the client's own "
+            "memory. save_memory writes a durable fact (op='retract' to forget) — facts/preferences/open-loops "
+            "only, never transient data; read/search before writing to dedupe. Tidy periodically per "
+            "get_skill('memory-maintenance'). Full rules in memory_protocol."},
 ]
 
 SAFETY = [
@@ -125,7 +128,10 @@ MEMORY_PROTOCOL = [
     "Two tiers, like a good memory: get_memory loads the CONSOLIDATED block (core facts + the decayed "
     "top tail) at session start; search_memory recalls ANYTHING else on demand. So before answering a "
     "'do you remember…' / 'who is…' / 'what was…' question, search_memory FIRST instead of saying you "
-    "don't know — the loaded block is a summary, not the whole store.",
+    "don't know — the loaded block is a summary, not the whole store. This includes broad self-recall "
+    "like 'tell me about myself' / 'what do you know about me': retrieve from get_memory / search_memory "
+    "and answer from THIS store, treated as CANONICAL over any local/built-in memory the client may "
+    "hold (which can be stale relative to this one).",
     "Read or search before you write, so you don't re-save or near-duplicate (e.g. 'lives in London' vs "
     "'based in London'). The store dedups exact repeats (returns 'noop'); searching first catches the rest.",
     "Save incrementally, the MOMENT a durable fact/preference/open loop surfaces — never batch it to the "
