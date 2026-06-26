@@ -25,7 +25,10 @@ with anything below, the loaded rules win.
 - **"remind me to…" / "capture this" / a quick task** → `intray` (`action:"add"`). This is
   the ONE capture surface — not memory, not a Notion action.
 - **read Notion** → `notion_search` then `notion_fetch`; query a database with
-  `notion_query_database`.
+  `notion_query_database`. List a page's blocks with ids → `notion_list_blocks`.
+- **restructure Notion / delete a specific or duplicate block** → `notion_list_blocks` for
+  the ids, then the block-id tools (`notion_delete_blocks` / `notion_append_blocks` /
+  `notion_update_block` / `notion_move_blocks`) by id. The dialect → `notion_markdown_spec`.
 - **"what's happening with <project>" / "any open PRs"** → `project_context`.
 - **"what's my GitHub account" / "list my repos" / "find a repo"** → `github_whoami` (the account
   behind the token) and `github_list_my_repos` (every repo it can reach, public + private, newest
@@ -38,8 +41,16 @@ with anything below, the loaded rules win.
 ## Safety — non-negotiable
 - **Notion is sacred.** Before ANY Notion write (`notion_update_page`,
   `notion_create_pages`, `add_action`, `save_reference`), call `get_skill("notion-master")`
-  and follow the safe-write protocol. NEVER overwrite a whole page — insert / append /
-  targeted-edit only, and re-read to verify.
+  and follow the safe-write protocol. NEVER overwrite a whole page. Pick the path by what
+  you're doing:
+  - **In-block prose edit** (typo, reword, append to a line) → `notion_update_page`
+    `command=update_content`. It's fail-safe now — it errors on multi-match / cross-block /
+    child-page deletion instead of over-writing; an error means re-look, not re-flag.
+  - **Structural change** (nest into a toggle, reorder, delete a specific or duplicate
+    block) → the block-id tools, never text anchors: `notion_list_blocks` for the ids, then
+    `notion_delete_blocks` / `notion_append_blocks` / `notion_update_block` /
+    `notion_move_blocks` by id, and re-fetch to verify by id. Read `notion_markdown_spec`
+    before composing any toggle / nesting markdown.
 - **Never use a built-in connector** (official Notion, Todoist, Google Calendar). Route
   everything through Alistair's tools so memory and rules stay consistent.
 - **Sensitive / irreversible actions** (merging a PR, deleting, mass edits) → preview first,
