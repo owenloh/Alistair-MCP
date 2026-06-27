@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     # token. Falls back to the gist token if a dedicated one isn't set.
     github_repo_token: str | None = None
 
+    # ---- Spotify (unofficial, via SpotAPI — no Developer app / official OAuth) ----
+    # The durable path is a logged-in web session: SPOTIFY_COOKIES holds the
+    # open.spotify.com cookies (raw "k=v; k2=v2" string OR a JSON object; sp_dc is
+    # the essential one), SPOTIFY_USERNAME is the account email/username. Password
+    # login is optional and needs a CAPTCHA solver, so it's not the default.
+    spotify_cookies: str | None = None
+    spotify_username: str | None = None
+    spotify_password: str | None = None  # optional; only for password login + a solver
+
     # ---- Memory (SQLite append-only event log) ----
     # Railway sets RAILWAY_VOLUME_MOUNT_PATH automatically when a volume is
     # attached; the DB lives there so it survives redeploys. With no volume the
@@ -86,6 +95,11 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.railway_env.strip().lower() == "production"
+
+    @property
+    def spotify_configured(self) -> bool:
+        """True when a logged-in Spotify session (cookies + account) is available."""
+        return bool(self.spotify_cookies and self.spotify_username)
 
     @property
     def resolved_base_url(self) -> str | None:

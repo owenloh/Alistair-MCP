@@ -17,13 +17,13 @@ behaviour, without the connectors.
 
 | Layer | What it is | Endpoints |
 |-------|-----------|-----------|
-| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/intray` (1), `/api/github/*` (11), `/api/memory/*` (3), `/api/alistair/*` (5) |
+| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/intray` (1), `/api/github/*` (11), `/api/spotify/*` (9), `/api/memory/*` (3), `/api/alistair/*` (5) |
 | **Description APIs** | Skills that tell Claude *what to do* (no code) | `/api/skill/{notion-master \| daily-brief \| notion-references-tray \| microsoft-todo-intray \| gmail}` (also via the MCP `get_skill` tool) |
 | **Manifest** | The catalogue of everything | `GET /api/manifest`, plus `/docs` and `/openapi.json` |
 
-So it is **~55 endpoints** — five "connectors" (Notion, Calendar, Gmail, in-tray,
-GitHub) that each contain many tool-APIs, plus the persona/memory layer, the skill
-description-APIs, and discovery. The high-value subset is also exposed as **37 MCP
+So it is **~65 endpoints** — six "connectors" (Notion, Calendar, Gmail, in-tray,
+GitHub, Spotify) that each contain many tool-APIs, plus the persona/memory layer, the
+skill description-APIs, and discovery. The high-value subset is also exposed as **54 MCP
 tools** on `alistair_assistant`.
 
 ### Notion function APIs (`/api/notion/*`)
@@ -46,6 +46,18 @@ tools** on `alistair_assistant`.
 `search`, `get-thread`, `list-drafts`, `create-draft`, `update-draft`, `delete-draft`
 — **read + draft only; it never sends.** Rides the same Google token as Calendar
 (needs the `gmail.readonly` + `gmail.compose` scopes; see `scripts/get_google_token.py`).
+
+### Spotify function APIs (`/api/spotify/*`)
+`playlists`, `playlist-tracks`, `search`, `devices`, `transfer`, `status`, `play`,
+`queue`, `control`. Controls Owen's Spotify via the **unofficial** API
+([SpotAPI](https://github.com/Aran404/SpotAPI), GPL-3.0) — **no Spotify Developer app
+and no official OAuth**, it drives Spotify the way the web player does. Auth is a
+logged-in web session: set `SPOTIFY_COOKIES` (your open.spotify.com cookies, at minimum
+`sp_dc`) + `SPOTIFY_USERNAME`. Two honest caveats: it's a reverse-engineered API (can
+break when Spotify changes, and cookies expire), and **playback control runs over
+Spotify Connect, so Spotify must already be open/active on a device** (phone/desktop/web
+player) — browsing playlists and searching work regardless. Exposed as the `spotify_*`
+MCP tools and documented in `get_skill('spotify')`.
 
 ## Fidelity (honest notes)
 
@@ -112,6 +124,7 @@ All secrets come from env vars only (see `.env.example`). Nothing is hardcoded.
 | `MS_CLIENT_ID`, `MS_TODO_LIST_ID`, `MS_TENANT` | In-tray | Azure public-client id; the in-tray list id; `consumers` for personal MS accounts. |
 | `GITHUB_GIST_TOKEN`, `GIST_ID`, `GIST_FILENAME` | In-tray + GitHub | Classic PAT (`gist` scope); private gist storing the MS refresh token. Also the fallback for the read/merge tools if `GITHUB_REPO_TOKEN` is unset. |
 | `GITHUB_REPO_TOKEN` | GitHub | Repo read + PR token, **distinct** from the gist token. Powers `whoami`/`list-my-repos` (account-aware: reports the account it belongs to and enumerates the repos it can reach, public + private) and the read/`merge-pr` tools. Scope is the token's — a fine-grained PAT only sees what you grant it; a classic `repo`-scope PAT sees everything the account can. Falls back to `GITHUB_GIST_TOKEN`. |
+| `SPOTIFY_COOKIES`, `SPOTIFY_USERNAME` | Spotify | Logged-in open.spotify.com session cookies (raw `k=v; k2=v2` string OR a JSON object; `sp_dc` is essential) + the account email/username. No Developer app/OAuth. Cookies expire — refresh if calls start 401ing. `SPOTIFY_PASSWORD` is optional (password login also needs a CAPTCHA solver). |
 | `SERVICE_API_KEY` | All `/api/*` | Optional. If set, every call must send `X-API-Key`. |
 | `RAILWAY_ENV` | Service | `production` on Railway. |
 

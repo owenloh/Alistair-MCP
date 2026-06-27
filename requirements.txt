@@ -8,3 +8,11 @@ python-dotenv>=1.0,<2.0
 tzdata>=2024.1
 # Remote MCP server (Streamable-HTTP) mounted at /mcp — the alistair_assistant tools
 mcp>=1.20,<2.0
+# Spotify control (unofficial API; [websocket] extra powers Spotify Connect / the
+# player). Imported lazily — if it's absent the Spotify tools just return 503.
+spotapi[websocket]>=1.2.8,<2.0
+# spotapi's utils/saver.py hard-imports pymongo + redis at module load (they're its
+# "optional" savers but the import isn't guarded), so `import spotapi` needs them even
+# though we never use those savers. Pin them so the package imports on deploy.
+pymongo>=4.6,<5.0
+redis>=5.0,<6.0
