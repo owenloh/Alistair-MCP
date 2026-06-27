@@ -46,13 +46,16 @@ names = set(by_name)
 
 # === server identity + tool registration ===
 check("server name is snake_case alistair_assistant", M.mcp.name == "alistair_assistant")
-check("45 tools registered (37 + 5 block-id + notion_markdown_spec + search_memory + memory_maintenance)",
-      len(tools) == 45)
+check("54 tools registered (45 + 9 spotify)",
+      len(tools) == 54)
 check("tool present: search_memory", "search_memory" in names)
 check("tool present: memory_maintenance", "memory_maintenance" in names)
 for blk in ("notion_list_blocks", "notion_append_blocks", "notion_update_block",
             "notion_delete_blocks", "notion_move_blocks", "notion_markdown_spec"):
     check(f"tool present: {blk}", blk in names)
+for sp in ("spotify_playlists", "spotify_playlist_tracks", "spotify_search", "spotify_devices",
+           "spotify_transfer", "spotify_status", "spotify_play", "spotify_queue", "spotify_control"):
+    check(f"tool present: {sp}", sp in names)
 check("all tool names snake_case (no hyphens)",
       all(n.replace("_", "a").isalnum() and n == n.lower() and "-" not in n for n in names))
 for core in ("load_context", "get_memory", "save_memory", "get_skill", "daily_brief",
@@ -116,6 +119,12 @@ check("project_context without token -> 503 error dict", pc.get("status") == 503
 # === call_tool: daily_brief degrades gracefully (nothing configured) ===
 brief = call("daily_brief", {})
 check("daily_brief returns unavailable list", isinstance(brief.get("unavailable"), list) and len(brief["unavailable"]) == 3)
+
+# === call_tool: spotify degrades to a clean 503 when not configured (no crash) ===
+sp_dev = call("spotify_devices", {})
+check("spotify_devices without config -> 503 error dict", sp_dev.get("status") == 503 and "error" in sp_dev)
+sp_search = call("spotify_search", {"query": "x"})
+check("spotify_search without config -> 503 error dict", sp_search.get("status") == 503)
 
 
 # === BearerAuthASGI guard ===
@@ -186,7 +195,7 @@ with TestClient(asgi) as cl:
     check("/mcp wrong key -> 401", rwrong.status_code == 401)
     # REST still flows through the dispatcher to FastAPI
     check("dispatcher passes /health to FastAPI", cl.get("/health").status_code == 200)
-    check("dispatcher passes /api/manifest to FastAPI", cl.get("/api/manifest").json()["counts"]["total"] == 65)
+    check("dispatcher passes /api/manifest to FastAPI", cl.get("/api/manifest").json()["counts"]["total"] == 75)
 os.environ.pop("SERVICE_API_KEY", None); _cfg.get_settings.cache_clear()
 
 # --- results ---

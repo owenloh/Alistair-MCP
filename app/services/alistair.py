@@ -73,6 +73,15 @@ ROUTING = [
      "use": "github_whoami identifies the account behind the token; github_list_my_repos enumerates the "
             "repos it can reach (public + private, newest first). Use it to discover owner/repo before "
             "project_context or the per-repo tools — no need to know the name up front. Read-only."},
+    {"says": ["play <song>", "play music", "put on", "pause", "resume", "skip", "next track",
+              "what's playing", "my playlists", "play on my <device>", "turn it up", "shuffle"],
+     "use": "Spotify (unofficial). Browse: spotify_playlists -> spotify_playlist_tracks; find a song with "
+            "spotify_search to get its uri. Play: spotify_play(track=<uri>, playlist=<uri optional>, "
+            "device=<optional>); spotify_queue adds without interrupting. Transport: spotify_control "
+            "(pause|resume|next|previous|restart|shuffle_on/off|repeat_on/off|volume value=0-100|seek value=ms). "
+            "Devices: spotify_devices lists them, spotify_transfer moves playback to one (by id or name); "
+            "spotify_status is 'what's playing'. NOTE: playback control needs Spotify already OPEN on a device "
+            "(Connect) — if none is active, tell Owen to open Spotify somewhere. Browsing/search work regardless."},
     {"says": ["remember this", "forget that", "what do you know about me", "do you remember", "who is",
               "tell me about myself", "who am I"],
      "use": "Any factual recall about Owen -> retrieve from Alistair FIRST (get_memory holds the consolidated "
@@ -92,6 +101,11 @@ SAFETY = [
     "never modifies Notion structure. Triage is always a proposal for Owen to action by hand.",
     "Sensitive/irreversible actions need explicit confirmation: github_merge_pr returns a preview "
     "unless confirm=true; Gmail is draft-only and never sends.",
+    "Spotify acts on Owen's real, currently-active devices (it starts/stops actual audio). Playback "
+    "control needs Spotify already open on a Connect device; if none is active, say so rather than "
+    "pretending it worked. When a device name is ambiguous, confirm which one before transferring. "
+    "Actions are reversible (pause/transfer back), so no hard confirm gate — but never fabricate "
+    "'now playing'; read spotify_status.",
     "Don't fabricate. If a read fails or returns nothing, say so plainly instead of guessing.",
     "For a question about Owen (people, projects, preferences, history), search the live sources FIRST "
     "— search_memory for what you know, plus Notion / Gmail / Calendar / in-tray as relevant — before "

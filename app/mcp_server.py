@@ -26,6 +26,7 @@ from .services import calendar as calendar_service
 from .services import gmail as gmail_service
 from .services import memory as memory_service
 from .services import notion as notion_service
+from .services import spotify as spotify_service
 from .skills import list_slugs, load_skill
 
 SERVER_NAME = "alistair_assistant"  # snake_case: Gemini rejects '-' in server names
@@ -202,8 +203,8 @@ def memory_maintenance() -> dict:
     description=(
         "Fetch one Alistair skill's full procedure on demand (the index is in load_context). "
         "Slugs: notion-master (safe-write protocol — load before ANY Notion write), daily-brief, "
-        "weekly-brief, notion-references-tray, microsoft-todo-intray, memory-maintenance "
-        "(consolidate/tidy long-term memory)."
+        "weekly-brief, notion-references-tray, microsoft-todo-intray, spotify (control playback / "
+        "browse playlists / pick a device), memory-maintenance (consolidate/tidy long-term memory)."
     ),
 )
 def get_skill(slug: str) -> dict:
@@ -781,6 +782,57 @@ def gmail_create_draft(to: str, subject: str, body: str, cc: str | None = None,
         get_settings(), to=to, subject=subject, body=body, cc=cc,
         thread_id=thread_id, in_reply_to=in_reply_to,
     ))
+
+
+# ===================== Spotify (unofficial API via SpotAPI) =====================
+# Descriptions are imported verbatim from the router docs (single source of truth).
+from .routers import _spotify_docs as _spdocs  # noqa: E402
+
+
+@mcp.tool(name="spotify_playlists", description=_spdocs.LIST_PLAYLISTS)
+def spotify_playlists(limit: int = 50) -> dict:
+    return _run(lambda: spotify_service.list_playlists(get_settings(), limit=limit))
+
+
+@mcp.tool(name="spotify_playlist_tracks", description=_spdocs.PLAYLIST_TRACKS)
+def spotify_playlist_tracks(playlist: str, limit: int = 50) -> dict:
+    return _run(lambda: spotify_service.playlist_tracks(get_settings(), playlist, limit=limit))
+
+
+@mcp.tool(name="spotify_search", description=_spdocs.SEARCH)
+def spotify_search(query: str, limit: int = 10) -> dict:
+    return _run(lambda: spotify_service.search_tracks(get_settings(), query, limit=limit))
+
+
+@mcp.tool(name="spotify_devices", description=_spdocs.DEVICES)
+def spotify_devices() -> dict:
+    return _run(lambda: spotify_service.list_devices(get_settings()))
+
+
+@mcp.tool(name="spotify_transfer", description=_spdocs.TRANSFER)
+def spotify_transfer(device: str) -> dict:
+    return _run(lambda: spotify_service.transfer_playback(get_settings(), device))
+
+
+@mcp.tool(name="spotify_status", description=_spdocs.STATUS)
+def spotify_status() -> dict:
+    return _run(lambda: spotify_service.now_playing(get_settings()))
+
+
+@mcp.tool(name="spotify_play", description=_spdocs.PLAY)
+def spotify_play(track: str, playlist: str | None = None, device: str | None = None) -> dict:
+    return _run(lambda: spotify_service.play(
+        get_settings(), track=track, playlist=playlist, device=device))
+
+
+@mcp.tool(name="spotify_queue", description=_spdocs.QUEUE)
+def spotify_queue(track: str) -> dict:
+    return _run(lambda: spotify_service.queue(get_settings(), track))
+
+
+@mcp.tool(name="spotify_control", description=_spdocs.CONTROL)
+def spotify_control(action: str, value: float | None = None) -> dict:
+    return _run(lambda: spotify_service.control(get_settings(), action, value))
 
 
 # ---- the mounted ASGI app + auth ----
