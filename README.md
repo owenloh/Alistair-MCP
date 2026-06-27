@@ -1,17 +1,26 @@
-# Alistair Skills API
+# Alistair — my personal Jarvis, as one portable MCP
 
-An HTTP + **remote MCP** service that mirrors Claude's **Notion**, **Google
-Calendar**, and **Gmail** connectors, the **Microsoft To Do in-tray**, and the
-**PARA skills** — so a **voice-mode / claude.ai Claude** (which can't use the
-desktop connectors/skills) can reproduce the *same behaviour*. The same tools ship
-as one remote MCP (`alistair_assistant`, Streamable-HTTP at `/mcp`) **and** as
-plain HTTP endpoints, and the skills are served *inside* the MCP via `get_skill`,
-so Alistair is self-contained — no separate skill uploads or other connectors needed.
+Alistair is my Jarvis-style assistant consolidated into **one MCP server**, so the
+assistant lives in the *connector* rather than in any single app. A single endpoint
+bundles **every tool** (Notion, Google Calendar, Gmail, a Microsoft To Do in-tray,
+GitHub, Spotify), his **memory**, and his **personality + routing skills**. Point
+Claude, Gemini, ChatGPT, or my own voice agent at it and you get the **same Alistair
+every time** — same memory, same behaviour — regardless of the LLM provider or how
+I reach him.
 
-The trick: each connector tool is re-exposed as an HTTP endpoint whose
-description is copied (near-)verbatim from the real connector, backed by the
-official REST API. Same model + same tool descriptions + HTTP access ⇒ same
-behaviour, without the connectors.
+It ships two ways from a single service: as a **remote MCP** (`alistair_assistant`,
+Streamable-HTTP at `/mcp`) for MCP-aware clients, **and** as plain **HTTP endpoints**
+for anything that can make a request (voice mode, scripts, custom agents). Skills and
+persona are served *inside* the MCP via `get_skill` / `load_context`, and memory via
+`get_memory` / `save_memory` — so Alistair is self-contained, with no separate skill
+uploads or other connectors needed.
+
+**Why it's LLM-agnostic:** each tool is exposed with a description copied
+(near-)verbatim from Claude's real connectors, backed by the official REST API, and
+the memory + persona travel with the server. Same tool descriptions + same memory +
+same routing rules ⇒ the same behaviour on any model that can call tools — Claude
+keeps connector-grade fidelity, and Gemini / ChatGPT / a voice agent inherit the
+identical brain.
 
 ## Three layers
 
