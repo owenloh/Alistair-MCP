@@ -466,6 +466,24 @@ def transfer_playback(settings: Settings, device: str) -> dict:
     return {"transferred": True, "device": {"id": target, "name": name}}
 
 
+def _find_track_uid(sp: dict, client, playlist_id: str, track_id: str) -> str | None:
+    """Find a track's playlist-item uid by reading the playlist over the AUTHENTICATED
+    session. SpotAPI's own Player.play_track re-fetches the playlist with a fresh
+    unauthenticated client, which returns a shape missing 'content' (KeyError) — so we
+    resolve the uid ourselves and drive the lower-level _play_song directly.
+    """
+    gen = sp["PublicPlaylist"](playlist_id, client=client).paginate_playlist()
+    try:
+        for chunk in gen:
+            uids, _stop = sp["Song"].parse_playlist_items(
+                chunk.get("items", []), song_id=track_id, all_instances=True)
+            if uids:
+                return uids[0]
+    finally:
+        gen.close()
+    return None
+
+
 def play(settings: Settings, *, track: str, playlist: str | None = None,
          device: str | None = None) -> dict:
     """Play a specific track.
@@ -481,7 +499,16 @@ def play(settings: Settings, *, track: str, playlist: str | None = None,
             target_id = _resolve_device(ps.device_ids, device)
     with _player(settings, device_id=target_id) as p:
         if playlist:
-            p.play_track(track_uri, _playlist_uri(playlist))
+            sp = _spotapi()
+            pid = _playlist_uri(playlist).split(":")[-1]
+            tid = track_uri.split(":")[-1]
+            uid = _find_track_uid(sp, p.client, pid, tid)
+            if uid is None:
+                raise ServiceError(
+                    f"Track {tid} is not in playlist {pid} — play it without a "
+                    "playlist, or pick a playlist it belongs to.", status_code=404)
+            # Same play command SpotAPI uses, but with our authenticated uid.
+            p._play_song(p.device_id, p.active_id, tid, pid, uid)
             mode = "played_in_playlist"
         else:
             p.add_to_queue(track_uri)
