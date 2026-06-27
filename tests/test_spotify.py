@@ -44,6 +44,9 @@ class FakePlayer:
     """Records every transport call so the action map can be asserted."""
     def __init__(self):
         self.calls = []
+        self.client = "auth-client"
+        self.device_id = "from-dev"
+        self.active_id = "to-dev"
     def pause(self): self.calls.append(("pause",))
     def resume(self): self.calls.append(("resume",))
     def skip_next(self): self.calls.append(("skip_next",))
@@ -54,7 +57,31 @@ class FakePlayer:
     def set_volume(self, v): self.calls.append(("set_volume", v))
     def seek_to(self, ms): self.calls.append(("seek_to", ms))
     def add_to_queue(self, t): self.calls.append(("add_to_queue", t))
-    def play_track(self, t, p): self.calls.append(("play_track", t, p))
+    def _play_song(self, f, t, track, playlist, uid):
+        self.calls.append(("_play_song", track, playlist, uid))
+
+# Fakes for the authenticated playlist resolution used by play(playlist=...)
+class FakePublicPlaylist:
+    def __init__(self, pid, client=None):
+        self.pid = pid
+    def paginate_playlist(self):
+        def gen():
+            yield {"items": [{"uid": "UID123", "itemV2": {"data": {
+                "uri": "spotify:track:t1", "name": "X"}}}]}
+        return gen()
+
+class FakeSong:
+    @staticmethod
+    def parse_playlist_items(items, *, song_id=None, song_name=None, all_instances=False):
+        uids = []
+        for it in items:
+            if song_id and song_id in it["itemV2"]["data"]["uri"]:
+                uids.append(it["uid"])
+                if all_instances:
+                    return uids, True
+        return uids, False
+
+FAKE_SP = {"PublicPlaylist": FakePublicPlaylist, "Song": FakeSong}
 
 def cm(obj):
     @contextlib.contextmanager
@@ -163,10 +190,18 @@ for bad, val, code in [("frobnicate", None, 400), ("volume", None, 400), ("volum
     except ServiceError as e:
         check(f"control {bad}/{val} -> {code}", e.status_code == code)
 
-# === play: with playlist -> play_track; without -> add_to_queue + skip_next ===
-fp = FakePlayer(); sp._player = cm(fp)
+# === play: with playlist -> resolve uid (authenticated) then _play_song ===
+fp = FakePlayer(); sp._player = cm(fp); sp._spotapi = lambda: FAKE_SP
 sp.play(S, track="t1", playlist="spotify:playlist:P9")
-check("play with playlist -> play_track", fp.calls == [("play_track", "spotify:track:t1", "spotify:playlist:P9")])
+check("play with playlist -> _play_song with resolved uid",
+      fp.calls == [("_play_song", "t1", "P9", "UID123")])
+# track not in the playlist -> clean 404
+fp = FakePlayer(); sp._player = cm(fp); sp._spotapi = lambda: FAKE_SP
+try:
+    sp.play(S, track="notthere", playlist="spotify:playlist:P9"); check("play not-in-playlist -> 404", False)
+except ServiceError as e:
+    check("play not-in-playlist -> 404", e.status_code == 404)
+# no playlist -> queue then skip
 fp = FakePlayer(); sp._player = cm(fp)
 sp.play(S, track="spotify:track:t2")
 check("play no playlist -> queue then skip", fp.calls == [("add_to_queue", "spotify:track:t2"), ("skip_next",)])
