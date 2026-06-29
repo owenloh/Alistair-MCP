@@ -27,6 +27,7 @@ from .services import gmail as gmail_service
 from .services import memory as memory_service
 from .services import notion as notion_service
 from .services import spotify as spotify_service
+from .services import whatsapp as whatsapp_service
 from .skills import list_slugs, load_skill
 
 SERVER_NAME = "alistair_assistant"  # snake_case: Gemini rejects '-' in server names
@@ -782,6 +783,58 @@ def gmail_create_draft(to: str, subject: str, body: str, cc: str | None = None,
         get_settings(), to=to, subject=subject, body=body, cc=cc,
         thread_id=thread_id, in_reply_to=in_reply_to,
     ))
+
+
+# ===================== WhatsApp (read + draft, NEVER sends) =====================
+@mcp.tool(
+    name="whatsapp_chats",
+    description=(
+        "List Owen's recent WhatsApp chats (chat id, name, last-message time, unread). "
+        "Read-only, and ONLINE-ONLY: it reads from the WhatsApp agent on Owen's laptop, so it "
+        "only works while that laptop is on — if it's offline, say so plainly (don't "
+        "fabricate). Use a returned chat id with whatsapp_read."
+    ),
+)
+def whatsapp_chats(limit: int = 20) -> dict:
+    return _run(lambda: whatsapp_service.list_chats(get_settings(), limit=limit))
+
+
+@mcp.tool(
+    name="whatsapp_read",
+    description=(
+        "Read recent messages in one WhatsApp chat by its chat id (from whatsapp_chats). "
+        "Read-only, online-only (via Owen's laptop agent). Summarise for Owen; it's his "
+        "private messaging — never repeat secrets, OTP/2FA codes or passwords you see."
+    ),
+)
+def whatsapp_read(chat: str, limit: int = 30) -> dict:
+    return _run(lambda: whatsapp_service.read_messages(get_settings(), chat=chat, limit=limit))
+
+
+@mcp.tool(
+    name="whatsapp_search",
+    description=(
+        "Search Owen's WhatsApp messages by text. Read-only, online-only (laptop agent). "
+        "Returns matches with their chat id so you can whatsapp_read the full thread."
+    ),
+)
+def whatsapp_search(query: str, limit: int = 20) -> dict:
+    return _run(lambda: whatsapp_service.search(get_settings(), query=query, limit=limit))
+
+
+@mcp.tool(
+    name="whatsapp_draft",
+    description=(
+        "Draft a WhatsApp message for Owen — returns a wa.me link that opens his NORMAL "
+        "WhatsApp with the text pre-filled in the compose box for him to review and SEND "
+        "HIMSELF. It NEVER sends and needs no laptop/session. 'to' = a phone number (any "
+        "format; a bare local number uses the default country code) or a contact name "
+        "(resolved via the laptop agent if it's online); 'body' = the message. 1:1 only. "
+        "Write in Owen's voice, keep it tight, then hand him the link."
+    ),
+)
+def whatsapp_draft(to: str, body: str) -> dict:
+    return _run(lambda: whatsapp_service.draft(get_settings(), to=to, body=body))
 
 
 # ===================== Spotify (unofficial API via SpotAPI) =====================

@@ -66,6 +66,13 @@ ROUTING = [
             "the item isn't time-bound, send it to the in-tray instead of guessing an event."},
     {"says": ["email", "gmail", "draft a reply", "check my mail"],
      "use": "gmail_search then gmail_read_thread to read; gmail_create_draft to draft. DRAFTS only — never sends."},
+    {"says": ["whatsapp", "check my whatsapp", "read my whatsapp", "what did <person> say on whatsapp",
+              "message <person> on whatsapp", "text <person>", "draft a whatsapp"],
+     "use": "READ: whatsapp_chats -> whatsapp_read (or whatsapp_search) — ONLINE-ONLY, via the agent on "
+            "Owen's laptop; if it's offline say so plainly, never fabricate. DRAFT: whatsapp_draft(to, body) "
+            "returns a wa.me link Owen taps to open WhatsApp with the text pre-filled, then sends HIMSELF. "
+            "Alistair NEVER sends WhatsApp. 1:1 chats; 'to' is a phone number or a contact name (resolved "
+            "only if the agent is online)."},
     {"says": ["what's happening with <project>", "open PRs", "project status"],
      "use": "project_context(owner, repo) — repo meta + commits + PRs + issues + README in one call."},
     {"says": ["what's my GitHub account", "who am I on GitHub", "list my repos",
@@ -101,6 +108,9 @@ SAFETY = [
     "never modifies Notion structure. Triage is always a proposal for Owen to action by hand.",
     "Sensitive/irreversible actions need explicit confirmation: github_merge_pr returns a preview "
     "unless confirm=true; Gmail is draft-only and never sends.",
+    "WhatsApp is read + draft only — Alistair NEVER sends. whatsapp_draft just returns a wa.me link "
+    "Owen taps to send himself; reading is online-only via his laptop agent, so if it's offline say so "
+    "plainly rather than guessing, and never repeat secrets/2FA codes from his messages.",
     "Spotify acts on Owen's real, currently-active devices (it starts/stops actual audio). Playback "
     "control needs Spotify already open on a Connect device; if none is active, say so rather than "
     "pretending it worked. When a device name is ambiguous, confirm which one before transferring. "

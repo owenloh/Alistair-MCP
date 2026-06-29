@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     spotify_username: str | None = None
     spotify_password: str | None = None  # optional; only for password login + a solver
 
+    # ---- WhatsApp (read via a laptop agent + draft via wa.me links; NEVER sends) ----
+    # Reading proxies to a small Baileys agent on Owen's laptop (its own linked device),
+    # reachable over Tailscale; the MCP stores nothing and only reads when the laptop is
+    # online. Drafting needs none of this — it builds a wa.me deep link Owen sends himself.
+    whatsapp_agent_url: str | None = None       # base URL of the laptop read-agent
+    whatsapp_agent_secret: str | None = None    # shared bearer secret for that agent
+    whatsapp_default_country_code: str = "44"   # normalise bare local numbers to E.164
+
     # ---- Memory (SQLite append-only event log) ----
     # Railway sets RAILWAY_VOLUME_MOUNT_PATH automatically when a volume is
     # attached; the DB lives there so it survives redeploys. With no volume the
@@ -100,6 +108,11 @@ class Settings(BaseSettings):
     def spotify_configured(self) -> bool:
         """True when a logged-in Spotify session (cookies + account) is available."""
         return bool(self.spotify_cookies and self.spotify_username)
+
+    @property
+    def whatsapp_read_configured(self) -> bool:
+        """True when the laptop read-agent URL is set (drafting works regardless)."""
+        return bool(self.whatsapp_agent_url)
 
     @property
     def resolved_base_url(self) -> str | None:

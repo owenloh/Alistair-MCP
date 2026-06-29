@@ -1,0 +1,29 @@
+{
+  "skill": "whatsapp",
+  "name": "whatsapp",
+  "type": "skill-description",
+  "description": "Read Owen's WhatsApp and prepare DRAFT messages for him. Use whenever Owen wants to check or read his WhatsApp (\"what did X say on WhatsApp\", \"check my WhatsApp\", \"any messages from Y\") or wants a WhatsApp drafted (\"draft a WhatsApp to Z\", \"text Howie saying…\"). Read + draft only: reading is ONLINE-ONLY (it comes from a small agent on Owen's laptop, so it works only while the laptop is on), and drafting returns a wa.me link that opens Owen's normal WhatsApp with the text pre-filled — it NEVER sends. Sending stays Owen's own action.",
+  "instructions": "# WhatsApp — read & draft (never sends)\n\nRead Owen's WhatsApp and prepare DRAFT messages. Two halves with very different mechanics.\n\n**Capability scope (hard limit): read + draft only. Alistair NEVER sends a WhatsApp.**\n\n## Reading (online-only)\n- `whatsapp_chats` -> recent chats (chat id, name, last-message time, unread).\n- `whatsapp_read` (by the chat id from chats) -> recent messages in that chat.\n- `whatsapp_search` -> find messages by text; returns their chat id.\n- These read from a small agent running on Owen's LAPTOP (its own linked WhatsApp device),\n  reachable over Tailscale. So they ONLY work while the laptop is on. If it's offline the tool\n  returns a clean \"agent offline\" — tell Owen plainly that reading needs his laptop on; do NOT\n  invent messages. Nothing is stored in the cloud; messages flow only when you call a read tool.\n\n## Drafting (no session — a wa.me link)\n- `whatsapp_draft(to, body)` returns a `wa.me/<number>?text=...` link. When Owen taps it, his\n  NORMAL WhatsApp (phone or desktop) opens on that chat with the text pre-filled in the compose\n  box. He reviews and SENDS it himself. There is no send tool by design.\n- `to` is a phone number in any format (a bare local number like 07700 900000 gets Owen's default\n  country code), OR a contact name — names are resolved to a number via the laptop agent only when\n  it's online; otherwise ask Owen for the number.\n- 1:1 chats only — wa.me deep links can't pre-fill a group chat.\n\n## When to use\n- \"what did <person> say on WhatsApp\", \"check my WhatsApp\", \"any messages from <person>\" -> chats, then read/search.\n- \"draft a WhatsApp to <person>\", \"text <person> saying…\" -> whatsapp_draft, then hand Owen the link.\n\n## Reading etiquette\n- Summarise: who, what they want, any deadline/ask. Quote only the lines that matter.\n- It is Owen's private messaging — never repeat secrets, OTP/2FA codes, or passwords you see.\n\n## Drafting etiquette\n- Write in Owen's voice: direct, concise. Match the chat's register.\n- ALWAYS leave it as a link for Owen to send; never imply you sent it, and never claim a draft was delivered.\n\n## Safety\n- Read + draft only. Alistair never sends. If asked to \"send it\", explain you've prepared the link\n  and he taps it to send from his own WhatsApp.\n- If reading returns \"agent offline\", say the laptop must be on — don't guess at message content.\n\n## If something fails\n- **agent offline (503)** -> Owen's laptop/agent is off or asleep. Reading needs it online; drafting still works.\n- **not configured (503)** -> set WHATSAPP_AGENT_URL (+ WHATSAPP_AGENT_SECRET) to the laptop read-agent.\n",
+  "sections": [
+    {
+      "heading": "When to use",
+      "body": "- Read/search: \"what did <person> say on WhatsApp\", \"check my WhatsApp\", \"any messages from X\" -> whatsapp_chats then whatsapp_read / whatsapp_search.\n- Draft: \"draft a WhatsApp to <person>\", \"text <person> saying…\" -> whatsapp_draft (returns a wa.me link, never sends)."
+    },
+    {
+      "heading": "How (read)",
+      "body": "Reading is ONLINE-ONLY — it comes from a small agent on Owen's laptop (its own linked device) over Tailscale. whatsapp_chats lists chats; pass a chat id to whatsapp_read; whatsapp_search finds by text. If the laptop is off the tool returns 'agent offline' — say so, never invent messages. Nothing is stored in the cloud."
+    },
+    {
+      "heading": "How (draft)",
+      "body": "whatsapp_draft(to, body) returns a wa.me link that opens Owen's NORMAL WhatsApp with the text pre-filled; he reviews and sends it himself. 'to' is a phone number (any format; bare local numbers get the default country code) or a contact name (resolved via the agent only if it's online). 1:1 chats only."
+    },
+    {
+      "heading": "Reading etiquette",
+      "body": "Summarise who/what/deadline; quote only what matters. It's private messaging — never repeat secrets, OTP/2FA codes, or passwords."
+    },
+    {
+      "heading": "Safety",
+      "body": "Read + draft only — Alistair NEVER sends. Drafting hands Owen a link he taps to send from his own WhatsApp. If reading is offline, say the laptop must be on rather than guessing."
+    }
+  ]
+}

@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .config import get_settings
 from .mcp_server import OAUTH_ENABLED, OAUTH_PATHS, mcp, mcp_asgi, oauth_provider
-from .routers import alistair, calendar, github, gmail, intray, memory, notion, skill, spotify
+from .routers import alistair, calendar, github, gmail, intray, memory, notion, skill, spotify, whatsapp
 from .services import ServiceError
 from .skills import skill_index
 
@@ -115,6 +115,7 @@ app.add_middleware(
 app.include_router(notion.router)
 app.include_router(calendar.router)
 app.include_router(gmail.router)
+app.include_router(whatsapp.router)
 app.include_router(intray.router)
 app.include_router(github.router)
 app.include_router(spotify.router)
@@ -154,6 +155,7 @@ def root() -> dict:
             "notion": bool(s.notion_token),
             "calendar": bool(s.google_calendar_token or s.google_refresh_token),
             "gmail": bool(s.google_refresh_token and s.google_client_id and s.google_client_secret),
+            "whatsapp_read": s.whatsapp_read_configured,
             "intray": bool(s.ms_client_id and s.ms_todo_list_id and s.github_gist_token and s.gist_id),
             "github_push": bool(s.github_gist_token),
             "github_read": bool(s.github_read_token),
@@ -195,13 +197,14 @@ def manifest() -> dict:
     """
     spec = app.openapi()
     groups: dict[str, list[dict]] = {
-        "notion": [], "calendar": [], "gmail": [], "intray": [], "github": [],
+        "notion": [], "calendar": [], "gmail": [], "whatsapp": [], "intray": [], "github": [],
         "spotify": [], "memory": [], "alistair": [], "skill": []
     }
     prefixes = {
         "/api/notion": "notion", "/api/calendar": "calendar", "/api/gmail": "gmail",
-        "/api/intray": "intray", "/api/github": "github", "/api/spotify": "spotify",
-        "/api/memory": "memory", "/api/alistair": "alistair", "/api/skill": "skill",
+        "/api/whatsapp": "whatsapp", "/api/intray": "intray", "/api/github": "github",
+        "/api/spotify": "spotify", "/api/memory": "memory", "/api/alistair": "alistair",
+        "/api/skill": "skill",
     }
     for path, item in spec.get("paths", {}).items():
         key = next((g for pre, g in prefixes.items() if path.startswith(pre)), None)
@@ -218,7 +221,7 @@ def manifest() -> dict:
                 "description": op.get("description", ""),
             })
 
-    function_apis = {k: groups[k] for k in ("notion", "calendar", "gmail", "intray", "github", "spotify", "memory", "alistair")}
+    function_apis = {k: groups[k] for k in ("notion", "calendar", "gmail", "whatsapp", "intray", "github", "spotify", "memory", "alistair")}
     description_apis = {
         "list_endpoint": "GET /api/skill",
         "get_endpoint": "GET /api/skill/{slug}",
