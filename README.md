@@ -2,8 +2,8 @@
 
 Alistair is my Jarvis-style assistant consolidated into **one MCP server**, so the
 assistant lives in the *connector* rather than in any single app. A single endpoint
-bundles **every tool** (Notion, Google Calendar, Gmail, a Microsoft To Do in-tray,
-GitHub, Spotify), his **memory**, and his **personality + routing skills**. Point
+bundles **every tool** (Notion, Google Calendar, Gmail, WhatsApp, a Microsoft To Do
+in-tray, GitHub, Spotify), his **memory**, and his **personality + routing skills**. Point
 Claude, Gemini, ChatGPT, or my own voice agent at it and you get the **same Alistair
 every time** — same memory, same behaviour — regardless of the LLM provider or how
 I reach him.
@@ -26,14 +26,14 @@ identical brain.
 
 | Layer | What it is | Endpoints |
 |-------|-----------|-----------|
-| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/intray` (1), `/api/github/*` (11), `/api/spotify/*` (9), `/api/memory/*` (3), `/api/alistair/*` (5) |
-| **Description APIs** | Skills that tell Claude *what to do* (no code) | `/api/skill/{notion-master \| daily-brief \| notion-references-tray \| microsoft-todo-intray \| gmail}` (also via the MCP `get_skill` tool) |
+| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/whatsapp/*` (6), `/api/intray` (1), `/api/github/*` (11), `/api/spotify/*` (9), `/api/memory/*` (3), `/api/alistair/*` (5) |
+| **Description APIs** | Skills that tell Claude *what to do* (no code) | `/api/skill/{notion-master \| daily-brief \| notion-references-tray \| microsoft-todo-intray \| gmail \| spotify \| whatsapp}` (also via the MCP `get_skill` tool) |
 | **Manifest** | The catalogue of everything | `GET /api/manifest`, plus `/docs` and `/openapi.json` |
 
-So it is **~65 endpoints** — six "connectors" (Notion, Calendar, Gmail, in-tray,
-GitHub, Spotify) that each contain many tool-APIs, plus the persona/memory layer, the
-skill description-APIs, and discovery. The high-value subset is also exposed as **54 MCP
-tools** on `alistair_assistant`.
+So it is **~82 endpoints** — seven "connectors" (Notion, Calendar, Gmail, WhatsApp,
+in-tray, GitHub, Spotify) that each contain many tool-APIs, plus the persona/memory
+layer, the skill description-APIs, and discovery. The high-value subset is also exposed
+as **60 MCP tools** on `alistair_assistant`.
 
 ### Notion function APIs (`/api/notion/*`)
 `search`, `fetch`, `create-pages`, `update-page`, `move-pages`, `duplicate-page`,
@@ -67,6 +67,21 @@ break when Spotify changes, and cookies expire), and **playback control runs ove
 Spotify Connect, so Spotify must already be open/active on a device** (phone/desktop/web
 player) — browsing playlists and searching work regardless. Exposed as the `spotify_*`
 MCP tools and documented in `get_skill('spotify')`.
+
+### WhatsApp function APIs (`/api/whatsapp/*`)
+`chats`, `messages`, `search`, `recent` (inbox + last-message previews), `find`
+(resolve a contact by name/number → read the chat in one hop), `draft` — **read +
+draft only; it never sends.** Reading proxies (online-only) to a **separate laptop
+agent** (Go + [whatsmeow](https://github.com/tulir/whatsmeow) + SQLite, its own linked
+device; repo `owenloh/whatsapp-agent`) reachable over **Tailscale** (`WHATSAPP_AGENT_URL`
++ `WHATSAPP_AGENT_SECRET`). The agent resolves identity (canonical phone numbers — no raw
+`@lid` — + saved contact names) and keeps persistent local history (SQLite); if the laptop
+is off, reads return a clean *"offline"* and **nothing is stored in the cloud**. **Drafting
+needs no agent and never sends** — it returns a `wa.me/<number>?text=…` deep link that opens
+Owen's normal WhatsApp with the text pre-filled, for him to review and send himself (1:1
+only). Honest caveats: it's an unofficial WhatsApp linked device (ToS/ban risk; re-scan the
+QR ~every 2–3 weeks), reads need the laptop on, and group drafting isn't supported by the
+link scheme. Exposed as the `whatsapp_*` MCP tools and documented in `get_skill('whatsapp')`.
 
 ## Fidelity (honest notes)
 
@@ -134,6 +149,7 @@ All secrets come from env vars only (see `.env.example`). Nothing is hardcoded.
 | `GITHUB_GIST_TOKEN`, `GIST_ID`, `GIST_FILENAME` | In-tray + GitHub | Classic PAT (`gist` scope); private gist storing the MS refresh token. Also the fallback for the read/merge tools if `GITHUB_REPO_TOKEN` is unset. |
 | `GITHUB_REPO_TOKEN` | GitHub | Repo read + PR token, **distinct** from the gist token. Powers `whoami`/`list-my-repos` (account-aware: reports the account it belongs to and enumerates the repos it can reach, public + private) and the read/`merge-pr` tools. Scope is the token's — a fine-grained PAT only sees what you grant it; a classic `repo`-scope PAT sees everything the account can. Falls back to `GITHUB_GIST_TOKEN`. |
 | `SPOTIFY_COOKIES`, `SPOTIFY_USERNAME` | Spotify | Logged-in open.spotify.com session cookies (raw `k=v; k2=v2` string OR a JSON object; `sp_dc` is essential) + the account email/username. No Developer app/OAuth. Cookies expire — refresh if calls start 401ing. `SPOTIFY_PASSWORD` is optional (password login also needs a CAPTCHA solver). |
+| `WHATSAPP_AGENT_URL`, `WHATSAPP_AGENT_SECRET` | WhatsApp (read) | Base URL + shared bearer secret of the laptop read-agent (`owenloh/whatsapp-agent`, over Tailscale). Leave blank to disable reading — **drafting still works without them**. `WHATSAPP_DEFAULT_COUNTRY_CODE` (default `44`) normalises bare local numbers to E.164 for `wa.me` links. |
 | `SERVICE_API_KEY` | All `/api/*` | Optional. If set, every call must send `X-API-Key`. |
 | `RAILWAY_ENV` | Service | `production` on Railway. |
 
