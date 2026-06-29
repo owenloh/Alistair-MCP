@@ -1,7 +1,7 @@
 # Alistair — Roadmap & Decisions
 
 A living triage of everything raised while turning the **Alistair Skills API**
-into the single **Alistair backend**. Last updated 2026-06-24.
+into the single **Alistair backend**. Last updated 2026-06-29.
 
 **Agreed build order:**
 **#3 Notion fidelity** (read→100% + write parity + pagination) ✅
@@ -11,6 +11,27 @@ into the single **Alistair backend**. Last updated 2026-06-24.
 → **claude.ai rollout** ← your config (steps in `docs/CLAUDE_AI_ROLLOUT.md`).
 
 Legend: ✅ done · 🔨 active · 📋 queued · 🚫 won't / can't · ⚠️ your action
+
+---
+
+## Latest (2026-06-29) — WhatsApp (read + draft, never sends)
+
+- **WhatsApp connector** ✅ live on `main` — `/api/whatsapp/*` (4) + 4 MCP tools (`whatsapp_chats`, `whatsapp_read`, `whatsapp_search`, `whatsapp_draft`). Mirrors the Gmail read+draft, never-sends model. Totals now **58 MCP tools / 80 REST endpoints / 9 served skills**; `tests/test_whatsapp.py` (32 checks) added, full suite green. **Live-verified end-to-end on Railway:** draft returns a `wa.me` link; `whatsapp_chats`/`whatsapp_read` returned real chats + a test message through MCP → Tailscale → laptop agent.
+- **Architecture (privacy-first):** the WhatsApp session is NOT in the MCP. A separate **laptop read-agent** (Node + Baileys, its own linked device; repo `owenloh/whatsapp-agent`) holds the session and exposes a Bearer-authed HTTP API; the **stateless** MCP proxies reads to it over **Tailscale** (`WHATSAPP_AGENT_URL` + `WHATSAPP_AGENT_SECRET`). Online-only: laptop off → clean "offline". Drafting needs no agent — it builds a `wa.me/<number>?text=…` link Owen taps to send himself (1:1 only). Nothing is stored in the cloud.
+- **Scheduler — decision: NOT in the MCP.** Proactive/scheduled behaviour (briefs, nudges, "watch & chase") belongs in the single-conductor voice-agent/runtime, not the shared stateless brain (avoids every connected client racing the same task). Parked.
+
+### 📋 WhatsApp — future implementations (deferred)
+
+- **Cloud history mirror (offline reads)** 📋 — store a bounded WhatsApp history on the MCP side so Alistair can refer back when the laptop is OFF (today reads are online-only). **Tradeoff:** message content then rests in the cloud (your own Railway, but still) — it reverses the privacy reason we self-hosted, so keep it tight. Design we landed on:
+  - **Store:** reuse the existing Railway **volume + SQLite** (same pattern as memory) with **FTS5** for search (`whatsapp_history.db`). Wipeable; the laptop stays source of truth.
+  - **Sync:** **push model** — the agent POSTs new messages to `/api/whatsapp/ingest` and edits/deletes to `/api/whatsapp/mutate` while online. Reads serve from the DB first (works offline), fall through to the live agent when online.
+  - **Reconcile (edits/deletes):** key rows on `(chat_jid, msg_id)` (ids are stable). Revoke (`messages.delete`) → **tombstone** (`[deleted]`, keep sender+ts). Edit (`messages.update` / `editedMessage`) → overwrite text + `edited` flag. **Drift gap:** a delete/edit that happens while the agent is offline past WhatsApp's ~14-day multi-device window is never received → the mirror can keep stale content. Shrink with short retention + re-pull-and-diff on reconnect; can't fully close it.
+  - **Depth:** rolling window `min(90 days, ~500 msgs/chat)`; `syncFullHistory: true` to seed on link. **Groups are the storage blow-up** — cap hard per-chat; consider excluding large groups / syncing them on-demand.
+  - **Retention:** nightly prune `TTL OR per-chat cap` (default **30 days**; shorter = more private); tombstones age out too. One-command wipeable.
+  - **Recommended start:** the **lazy read-cache** variant (cache only what's actually read, ~14–30d TTL) — a fraction of the build and the privacy hit — before committing to the full push-mirror.
+- **Agent cold-start chats** 📋 (lives in `owenloh/whatsapp-agent`) — the agent only recorded the *messages* part of the history sync, so `whatsapp_chats` is empty until a new message arrives. Patch: populate the chats map from the `chats` array of `messaging-history.set` + `chats.upsert`/`chats.update`, and optionally `syncFullHistory: true`, so recent chats show on a cold start.
+- **Group drafting** 📋 — `wa.me` deep links are **1:1 only**; drafting into a group's compose box isn't supported by the link scheme. Revisit if group drafting is needed.
+- **Local history store in the agent** 📋 — the agent's recent buffer is in-memory (rehydrates on reconnect); swap for SQLite if longer local history/search is wanted (keep the same HTTP routes).
 
 ---
 
