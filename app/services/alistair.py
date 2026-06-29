@@ -66,13 +66,16 @@ ROUTING = [
             "the item isn't time-bound, send it to the in-tray instead of guessing an event."},
     {"says": ["email", "gmail", "draft a reply", "check my mail"],
      "use": "gmail_search then gmail_read_thread to read; gmail_create_draft to draft. DRAFTS only — never sends."},
-    {"says": ["whatsapp", "check my whatsapp", "read my whatsapp", "what did <person> say on whatsapp",
+    {"says": ["whatsapp", "what's new on whatsapp", "any new messages", "check my whatsapp",
+              "read my chat with <person>", "what did <person> say on whatsapp",
               "message <person> on whatsapp", "text <person>", "draft a whatsapp"],
-     "use": "READ: whatsapp_chats -> whatsapp_read (or whatsapp_search) — ONLINE-ONLY, via the agent on "
-            "Owen's laptop; if it's offline say so plainly, never fabricate. DRAFT: whatsapp_draft(to, body) "
-            "returns a wa.me link Owen taps to open WhatsApp with the text pre-filled, then sends HIMSELF. "
-            "Alistair NEVER sends WhatsApp. 1:1 chats; 'to' is a phone number or a contact name (resolved "
-            "only if the agent is online)."},
+     "use": "READ (ONLINE-ONLY via Owen's laptop agent; if offline say so, never fabricate): for 'what's new "
+            "/ any new messages' use whatsapp_recent (inbox + last-message previews + unread). For 'read my "
+            "chat with X / what did X say' use whatsapp_find(query=<name or number>) — it RESOLVES the contact "
+            "and reads the chat in one hop; don't guess from whatsapp_search text matches. whatsapp_chats lists "
+            "chats; whatsapp_search matches message text. DRAFT: whatsapp_draft(to, body) returns a wa.me link "
+            "Owen taps to open WhatsApp with the text pre-filled, then sends HIMSELF (a name is resolved to the "
+            "canonical number via the agent). Alistair NEVER sends WhatsApp. 1:1 chats only."},
     {"says": ["what's happening with <project>", "open PRs", "project status"],
      "use": "project_context(owner, repo) — repo meta + commits + PRs + issues + README in one call."},
     {"says": ["what's my GitHub account", "who am I on GitHub", "list my repos",

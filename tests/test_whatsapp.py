@@ -115,6 +115,41 @@ except ServiceError as e:
     check("read empty chat -> 422", e.status_code == 422)
 
 
+# === recent (inbox) ===
+patch([("/recent", FakeResp(200, {"chats": [{"jid": "447379648355@s.whatsapp.net", "name": "fatty chloe", "lastTs": 123, "unread": 1, "lastText": "hey"}]}))])
+rc = whatsapp.recent(st_agent, limit=10)
+check("recent count 1", rc["count"] == 1)
+check("recent carries last-text preview", rc["chats"][0]["lastText"] == "hey")
+
+# === resolve (name/number/jid -> canonical {jid,name,number}) ===
+patch([("/resolve", FakeResp(200, {"jid": "447379648355@s.whatsapp.net", "name": "fatty chloe", "number": "447379648355"}))])
+rv = whatsapp.resolve(st_agent, query="chloe")
+check("resolve returns number", rv["number"] == "447379648355")
+check("resolve returns name", rv["name"] == "fatty chloe")
+
+# === find: resolve -> read in ONE hop ===
+patch([
+    ("/resolve", FakeResp(200, {"jid": "447379648355@s.whatsapp.net", "name": "fatty chloe", "number": "447379648355"})),
+    ("/messages", FakeResp(200, {"messages": [{"from": "fatty chloe", "fromMe": False, "ts": 123, "text": "hi"}]})),
+])
+fd = whatsapp.find(st_agent, query="chloe")
+check("find found True", fd["found"] is True)
+check("find resolved contact", fd["contact"]["number"] == "447379648355")
+check("find read messages", fd["count"] == 1 and fd["messages"][0]["text"] == "hi")
+
+# find: no match -> found False (not a crash)
+patch([("/resolve", FakeResp(200, {"jid": "", "name": "", "number": ""}))])
+nf = whatsapp.find(st_agent, query="nobody")
+check("find no-match -> found False", nf["found"] is False)
+
+# === draft by NAME now resolves via /resolve to the canonical number ===
+patch([("/resolve", FakeResp(200, {"jid": "447379648355@s.whatsapp.net", "name": "fatty chloe", "number": "447379648355"}))])
+dn = whatsapp.draft(st_agent, to="fatty chloe", body="call me")
+check("draft by name resolves number", dn["number"] == "447379648355")
+check("draft by name builds link", dn["link"] == "https://wa.me/447379648355?text=call%20me")
+check("draft by name notes resolved_from", dn.get("resolved_from_name") == "fatty chloe")
+
+
 # === offline: laptop agent unreachable -> clean 503, not a crash ===
 patch(raise_exc=_httpx.ConnectError("connection refused"))
 try:
@@ -145,9 +180,10 @@ from app.main import app
 c = TestClient(app)
 
 mani = c.get("/api/manifest").json()
-check("manifest whatsapp has 4 tools", mani["counts"].get("whatsapp") == 4)
+check("manifest whatsapp has 6 tools", mani["counts"].get("whatsapp") == 6)
 paths = [t["path"] for t in mani["function_apis"]["whatsapp"]]
-for p in ["/api/whatsapp/chats", "/api/whatsapp/messages", "/api/whatsapp/search", "/api/whatsapp/draft"]:
+for p in ["/api/whatsapp/chats", "/api/whatsapp/messages", "/api/whatsapp/search",
+          "/api/whatsapp/recent", "/api/whatsapp/find", "/api/whatsapp/draft"]:
     check(f"manifest lists {p}", p in paths)
 draft_desc = next(t["description"] for t in mani["function_apis"]["whatsapp"] if t["path"] == "/api/whatsapp/draft")
 check("draft description says never sends", "never sends" in draft_desc.lower())

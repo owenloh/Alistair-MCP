@@ -823,6 +823,31 @@ def whatsapp_search(query: str, limit: int = 20) -> dict:
 
 
 @mcp.tool(
+    name="whatsapp_recent",
+    description=(
+        "WhatsApp inbox — the most recent chats with a last-message preview + unread count, "
+        "newest first. Read-only, ONLINE-ONLY (laptop agent). Best tool for 'what's new on "
+        "WhatsApp' / 'any new messages' — one call, no opening each chat. If the laptop's off, say so."
+    ),
+)
+def whatsapp_recent(limit: int = 15) -> dict:
+    return _run(lambda: whatsapp_service.recent(get_settings(), limit=limit))
+
+
+@mcp.tool(
+    name="whatsapp_find",
+    description=(
+        "Find a WhatsApp chat by CONTACT NAME or phone number and read its recent messages in one "
+        "step. Read-only, online-only. Resolves e.g. 'Chloe' (or a number) to the right chat and "
+        "returns {jid,name,number} + recent messages. Use this for 'read my chat with X' / 'what did "
+        "X say on WhatsApp' instead of guessing from whatsapp_search text matches. Says so if no match."
+    ),
+)
+def whatsapp_find(query: str, limit: int = 20) -> dict:
+    return _run(lambda: whatsapp_service.find(get_settings(), query=query, limit=limit))
+
+
+@mcp.tool(
     name="whatsapp_draft",
     description=(
         "Draft a WhatsApp message for Owen — returns a wa.me link that opens his NORMAL "

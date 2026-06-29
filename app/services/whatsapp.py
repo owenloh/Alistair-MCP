@@ -112,6 +112,38 @@ def search(settings: Settings, *, query: str, limit: int = 20, **_ignored) -> di
     return {"query": query, "count": len(msgs), "messages": msgs}
 
 
+def recent(settings: Settings, *, limit: int = 15, **_ignored) -> dict:
+    """Inbox view — most recent chats with a last-message preview + unread, newest first. Read-only."""
+    limit = max(1, min(int(limit or 15), 50))
+    chats = _as_list(_agent_get(settings, "/recent", params={"limit": limit}), "chats")
+    return {"count": len(chats), "chats": chats}
+
+
+def resolve(settings: Settings, *, query: str, **_ignored) -> dict:
+    """Resolve a name / number / jid to a canonical {jid, name, number} (empty strings if no match)."""
+    if not query:
+        raise ServiceError("query is required.", status_code=422)
+    r = _agent_get(settings, "/resolve", params={"q": query})
+    if not isinstance(r, dict):
+        return {"jid": "", "name": "", "number": ""}
+    return {"jid": r.get("jid", ""), "name": r.get("name", ""), "number": r.get("number", "")}
+
+
+def find(settings: Settings, *, query: str, limit: int = 20, **_ignored) -> dict:
+    """Resolve a contact by name/number, then read that chat's recent messages in one hop. Read-only."""
+    if not query:
+        raise ServiceError("query is required.", status_code=422)
+    who = resolve(settings, query=query)
+    jid = who.get("jid") or ""
+    if not jid:
+        return {"query": query, "found": False,
+                "note": "No WhatsApp chat/contact matched. Try a phone number, or whatsapp_search the message text."}
+    limit = max(1, min(int(limit or 20), 100))
+    msgs = _as_list(_agent_get(settings, "/messages", params={"chat": jid, "limit": limit}), "messages")
+    return {"query": query, "found": True, "contact": who, "chat": jid,
+            "count": len(msgs), "messages": msgs}
+
+
 # ---------------------------------------------------------------------------
 # Draft half — pure wa.me deep link (no session, NEVER sends)
 # ---------------------------------------------------------------------------
@@ -149,14 +181,12 @@ def draft(settings: Settings, *, to: str, body: str, **_ignored) -> dict:
     raw = to
     resolved_from = None
     if not any(ch.isdigit() for ch in to):
-        # A name — try the agent's contact resolver (read-only, best effort).
+        # A name — resolve to the canonical number via the agent (no LID confusion).
         try:
-            contacts = _as_list(_agent_get(settings, "/contacts", params={"query": to}), "contacts")
-            if contacts:
-                raw = contacts[0].get("number") or contacts[0].get("jid") or ""
+            num = resolve(settings, query=to).get("number") or ""
+            raw = num
+            if num:
                 resolved_from = to
-            else:
-                raw = ""
         except ServiceError:
             raw = ""
         if not raw:

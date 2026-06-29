@@ -23,6 +23,19 @@ SEARCH = (
     "Returns matching messages with their chat id so you can read the full thread."
 )
 
+RECENT = (
+    "WhatsApp inbox — the most recent chats with a last-message preview and unread count, "
+    "newest first. Read-only, online-only (via the laptop agent). Best for 'what's new on "
+    "WhatsApp' / 'any new messages' — one call, no need to open each chat."
+)
+
+FIND = (
+    "Find a WhatsApp chat by CONTACT NAME or phone number and read its recent messages in one "
+    "step. Read-only, online-only. Resolves e.g. 'Chloe' (or a number) to the right chat — use "
+    "this instead of guessing from message-text search. Returns the resolved {jid,name,number} "
+    "plus recent messages, or says so if nothing matches."
+)
+
 DRAFT = (
     "Draft a WhatsApp message — returns a wa.me link that opens Owen's NORMAL WhatsApp with "
     "the text PRE-FILLED in the compose box for him to review and SEND HIMSELF. It NEVER "

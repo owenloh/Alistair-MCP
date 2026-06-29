@@ -41,6 +41,15 @@ class SearchRequest(BaseModel):
     limit: int = 20
 
 
+class RecentRequest(BaseModel):
+    limit: int = 15
+
+
+class FindRequest(BaseModel):
+    query: str
+    limit: int = 20
+
+
 class DraftRequest(BaseModel):
     to: str
     body: str
@@ -63,6 +72,16 @@ def messages(body: ReadRequest) -> dict:
 @router.post("/search", summary="Search WhatsApp messages", description=docs.SEARCH)
 def search(body: SearchRequest) -> dict:
     return whatsapp_service.search(get_settings(), query=body.query, limit=body.limit)
+
+
+@router.post("/recent", summary="WhatsApp inbox (recent chats + previews)", description=docs.RECENT)
+def recent(body: RecentRequest | None = None) -> dict:
+    return whatsapp_service.recent(get_settings(), limit=body.limit if body else 15)
+
+
+@router.post("/find", summary="Find a WhatsApp chat by name/number and read it", description=docs.FIND)
+def find(body: FindRequest) -> dict:
+    return whatsapp_service.find(get_settings(), query=body.query, limit=body.limit)
 
 
 @router.post("/draft", summary="Draft a WhatsApp message (wa.me link, never sends)",
