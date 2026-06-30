@@ -1327,10 +1327,42 @@ def _date_only(value: Any) -> Any:
     return value
 
 
+def _option_name(value: Any) -> str:
+    """Extract a select/status option name from the various shapes a model may send.
+
+    Accepts a bare name ("Done"), a partial object ({"name": "Done"}), or the full
+    official Notion value ({"select": {"name": "Done"}} / {"status": {"name": "Done"}}).
+    Without this a nested object would be str()'d into a bogus option name (e.g.
+    "{'name': 'Done'}") and Notion would reject the write with a 400.
+    """
+    if isinstance(value, dict):
+        inner = value.get("select") or value.get("status")
+        if isinstance(inner, dict):
+            value = inner
+        name = value.get("name")
+        if isinstance(name, str):
+            return name
+    return str(value)
+
+
+def _ref_id(value: Any) -> str:
+    """Extract a relation/people id from a bare id string or a {"id": ...} object."""
+    if isinstance(value, dict):
+        return str(value.get("id", ""))
+    return str(value)
+
+
 def _coerce_property(ptype: str | None, value: Any) -> dict:
     # Title / unknown text falls back to title or rich_text based on schema type.
     if value is None:
         return {ptype: None} if ptype else {"rich_text": []}
+    # Accept the official Notion property-value object as-is. Models trained on the
+    # Notion REST API often pass the nested form (e.g. {"status": {"name": "Done"}} or
+    # {"multi_select": [{"name": "A"}]}) instead of the flat connector value; without
+    # this we'd str() the dict into a bogus option name and Notion would 400. The flat
+    # connector form (a plain string / list) still works via the branches below.
+    if ptype and isinstance(value, dict) and ptype in value:
+        return {ptype: value[ptype]}
     if ptype == "title" or ptype is None and isinstance(value, str):
         # default unknown string -> title only if we truly don't know; else rich_text
         if ptype == "title":
@@ -1342,12 +1374,12 @@ def _coerce_property(ptype: str | None, value: Any) -> dict:
     if ptype == "number":
         return {"number": value if isinstance(value, (int, float)) else float(value)}
     if ptype == "select":
-        return {"select": {"name": str(value)}}
+        return {"select": {"name": _option_name(value)}}
     if ptype == "status":
-        return {"status": {"name": str(value)}}
+        return {"status": {"name": _option_name(value)}}
     if ptype == "multi_select":
         vals = value if isinstance(value, list) else [v.strip() for v in str(value).split(",")]
-        return {"multi_select": [{"name": str(v)} for v in vals]}
+        return {"multi_select": [{"name": _option_name(v)} for v in vals]}
     if ptype == "checkbox":
         if isinstance(value, str):
             return {"checkbox": value.strip().upper() in ("__YES__", "TRUE", "YES", "1")}
@@ -1358,10 +1390,10 @@ def _coerce_property(ptype: str | None, value: Any) -> dict:
         return {"date": {"start": str(value)}}
     if ptype == "people":
         ids = value if isinstance(value, list) else [value]
-        return {"people": [{"id": i} for i in ids]}
+        return {"people": [{"id": _ref_id(i)} for i in ids]}
     if ptype == "relation":
         ids = value if isinstance(value, list) else [value]
-        return {"relation": [{"id": i} for i in ids]}
+        return {"relation": [{"id": _ref_id(i)} for i in ids]}
     # Fallback: treat as rich_text
     return {"rich_text": _inline_to_rich(str(value))}
 
