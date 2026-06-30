@@ -1,250 +1,159 @@
-# Alistair — my personal Jarvis, as one portable MCP
+# Alistair — one assistant, any model
 
-Alistair is my Jarvis-style assistant consolidated into **one MCP server**, so the
-assistant lives in the *connector* rather than in any single app. A single endpoint
-bundles **every tool** (Notion, Google Calendar, Gmail, WhatsApp, a Microsoft To Do
-in-tray, GitHub, Spotify), his **memory**, and his **personality + routing skills**. Point
-Claude, Gemini, ChatGPT, or my own voice agent at it and you get the **same Alistair
-every time** — same memory, same behaviour — regardless of the LLM provider or how
-I reach him.
+> One MCP server that gives Claude, Gemini, ChatGPT, or a voice agent **the same assistant**: same tools, same memory, same personality, no matter which model you use or how you reach it.
 
-It ships two ways from a single service: as a **remote MCP** (`alistair_assistant`,
-Streamable-HTTP at `/mcp`) for MCP-aware clients, **and** as plain **HTTP endpoints**
-for anything that can make a request (voice mode, scripts, custom agents). Skills and
-persona are served *inside* the MCP via `get_skill` / `load_context`, and memory via
-`get_memory` / `save_memory` — so Alistair is self-contained, with no separate skill
-uploads or other connectors needed.
+![status](https://img.shields.io/badge/status-active-brightgreen)
+![mcp](https://img.shields.io/badge/protocol-MCP-blue)
+![license](https://img.shields.io/badge/license-MIT-lightgrey)
+![python](https://img.shields.io/badge/python-3.11+-3776AB)
 
-**Why it's LLM-agnostic:** each tool is exposed with a description copied
-(near-)verbatim from Claude's real connectors, backed by the official REST API, and
-the memory + persona travel with the server. Same tool descriptions + same memory +
-same routing rules ⇒ the same behaviour on any model that can call tools — Claude
-keeps connector-grade fidelity, and Gemini / ChatGPT / a voice agent inherit the
-identical brain.
+Alistair is a Jarvis-style personal assistant collapsed into a single connector. The assistant lives in the *server*, not in any one app, so the brain travels with you between models.
 
-## Three layers
+```mermaid
+graph LR
+    A[Claude] --> S
+    B[Gemini] --> S
+    C[ChatGPT] --> S
+    D[Voice agent] --> S
+    S[("Alistair MCP<br/>one endpoint")] --> T1[Notion]
+    S --> T2[Calendar]
+    S --> T3[Gmail]
+    S --> T4[WhatsApp]
+    S --> T5[To Do in-tray]
+    S --> T6[GitHub]
+    S --> T7[Spotify]
+    S --> M[(Memory)]
+    S --> P[Persona + routing skills]
+```
+
+**Why it's model-agnostic:** every tool is exposed with a description copied near-verbatim from Claude's real connectors, backed by the official REST API, and the memory and persona are served from inside the server. Same tool descriptions, same memory, same routing rules means the same behaviour on any model that can call tools. Claude keeps connector-grade fidelity; Gemini, ChatGPT, and a voice agent inherit the identical brain.
+
+---
+
+## Quick start
+
+You need Python 3.11+ and the API tokens for whichever connectors you want (all optional, set only what you use).
+
+```bash
+git clone https://github.com/owenloh/Alistair-MCP.git
+cd Alistair-MCP
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env            # fill in the tokens you have
+uvicorn app.main:asgi --reload  # http://127.0.0.1:8000/docs  +  /mcp
+```
+
+> `app.main:asgi` is the dispatcher that serves both the HTTP API (`/docs`, `/api/*`) **and** the MCP endpoint at `/mcp`. (`app.main:app` is the bare FastAPI app — HTTP only, no `/mcp`.)
+
+Then point any MCP client at it:
+
+| Client | How |
+|--------|-----|
+| **Claude / MCP-aware clients** | Add the remote MCP `alistair_assistant` (Streamable-HTTP) at `<base-url>/mcp`. |
+| **Voice mode / scripts / custom agents** | Call the plain HTTP endpoints directly. Start with `GET /api/manifest` to discover every tool. |
+
+Self-contained: skills and persona are served *inside* the MCP via `get_skill` / `load_context`, and memory via `get_memory` / `save_memory`. No separate skill uploads or extra connectors needed.
+
+It ships two ways from one service: a **remote MCP** (`alistair_assistant`, Streamable-HTTP at `/mcp`) for MCP clients, **and** plain **HTTP endpoints** for anything that can make a request.
+
+---
+
+## What it bundles
+
+Seven connectors, each with many tool-APIs, plus the persona/memory layer, skill descriptions, and discovery: about **82 endpoints**, with the high-value subset also exposed as **60 MCP tools** on `alistair_assistant`.
 
 | Layer | What it is | Endpoints |
 |-------|-----------|-----------|
 | **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/whatsapp/*` (6), `/api/intray` (1), `/api/github/*` (11), `/api/spotify/*` (9), `/api/memory/*` (3), `/api/alistair/*` (5) |
-| **Description APIs** | Skills that tell Claude *what to do* (no code) | `/api/skill/{notion-master \| daily-brief \| notion-references-tray \| microsoft-todo-intray \| gmail \| spotify \| whatsapp}` (also via the MCP `get_skill` tool) |
+| **Description APIs** | Skills that tell the model *what to do* (no code) | `/api/skill/{notion-master \| daily-brief \| notion-references-tray \| microsoft-todo-intray \| gmail \| spotify \| whatsapp}` (also via the MCP `get_skill` tool) |
 | **Manifest** | The catalogue of everything | `GET /api/manifest`, plus `/docs` and `/openapi.json` |
 
-So it is **~82 endpoints** — seven "connectors" (Notion, Calendar, Gmail, WhatsApp,
-in-tray, GitHub, Spotify) that each contain many tool-APIs, plus the persona/memory
-layer, the skill description-APIs, and discovery. The high-value subset is also exposed
-as **60 MCP tools** on `alistair_assistant`.
+**Connectors at a glance:**
 
-### Notion function APIs (`/api/notion/*`)
-`search`, `fetch`, `create-pages`, `update-page`, `move-pages`, `duplicate-page`,
-`create-database`, `update-data-source`, `create-comment`, `get-comments`,
-`get-users`, `get-teams`, `create-view`, `update-view`, `query-database`,
-`query` (the PARA daily-brief read: `ACTIVE_PROJECTS`, `NEXT_ACTIONS`,
-`SOMEDAY_PROJECTS`, `SOMEDAY_ACTIONS`), plus the **block-id primitives**
-`list-blocks`, `append-blocks`, `update-block`, `delete-blocks`, `move-blocks`.
+- **Notion** (`/api/notion/*`): `search`, `fetch`, `create-pages`, `update-page`, `move-pages`, `duplicate-page`, `create-database`, `query-database`, the PARA daily-brief `query`, plus block-id primitives (`list-blocks`, `append-blocks`, `update-block`, `delete-blocks`, `move-blocks`).
+- **Google Calendar** (`/api/calendar/*`): `today`, `list-events`, `list-calendars`, `get-event`, `create-event`, `update-event`, `delete-event`, `respond-to-event`, `suggest-time`.
+- **Gmail** (`/api/gmail/*`): `search`, `get-thread`, `list-drafts`, `create-draft`, `update-draft`, `delete-draft`. **Read + draft only, it never sends.**
+- **WhatsApp** (`/api/whatsapp/*`): `chats`, `messages`, `search`, `recent`, `find`, `draft`. **Read + draft only.** Reads proxy to a separate laptop agent over Tailscale; drafting returns a `wa.me` deep link for you to send yourself.
+- **Microsoft To Do in-tray** (`/api/intray`): single hard-scoped capture list, `list` / `add` / `delete` / `done`.
+- **GitHub** (`/api/github/*`): repo read, PR read/merge, and `push-file`.
+- **Spotify** (`/api/spotify/*`): `playlists`, `search`, `devices`, `status`, `play`, `queue`, `control`, via a logged-in web session (no Developer app).
 
-### Google Calendar function APIs (`/api/calendar/*`)
-`today`, `list-events`, `list-calendars`, `get-event`, `create-event`,
-`update-event`, `delete-event`, `respond-to-event`, `suggest-time`.
+<details>
+<summary><b>Fidelity notes (how close to the real connectors)</b></summary>
 
-### In-tray function API (`/api/intray`)
-`POST /api/intray` with `{"action": "list"|"add"|"delete"|"done", "title"?, "task_id"?}`
-(Microsoft To Do, single hard-scoped list, self-rolling token via a private gist).
+Backends are the official REST APIs, so behaviour matches the connectors closely but not always byte-for-byte.
 
-### Gmail function APIs (`/api/gmail/*`)
-`search`, `get-thread`, `list-drafts`, `create-draft`, `update-draft`, `delete-draft`
-— **read + draft only; it never sends.** Rides the same Google token as Calendar
-(needs the `gmail.readonly` + `gmail.compose` scopes; see `scripts/get_google_token.py`).
+- **Exact / clean:** all Calendar tools, the in-tray, Notion `search`, `fetch`, `query-database`, `query`, `get-users`, `create-pages`, `update-page`, `create-comment`, `get-comments`, and the block-id tools.
+- **Best-effort:** `duplicate-page` (shallow copy), `create-database` / `update-data-source` (common column types, not RELATION/ROLLUP/FORMULA), `move-pages` (pages only), `move-blocks` (copies subtree then deletes original, so block ids change).
+- **Returns 501 (not in the public REST API):** `get-teams`, `create-view`, `update-view`, and `update-page` commands `apply_template` / `update_verification`. Use `query-database` for filtered reads instead of views.
 
-### Spotify function APIs (`/api/spotify/*`)
-`playlists`, `playlist-tracks`, `search`, `devices`, `transfer`, `status`, `play`,
-`queue`, `control`. Controls Owen's Spotify via the **unofficial** API
-([SpotAPI](https://github.com/Aran404/SpotAPI), GPL-3.0) — **no Spotify Developer app
-and no official OAuth**, it drives Spotify the way the web player does. Auth is a
-logged-in web session: set `SPOTIFY_COOKIES` (your open.spotify.com cookies, at minimum
-`sp_dc`) + `SPOTIFY_USERNAME`. Two honest caveats: it's a reverse-engineered API (can
-break when Spotify changes, and cookies expire), and **playback control runs over
-Spotify Connect, so Spotify must already be open/active on a device** (phone/desktop/web
-player) — browsing playlists and searching work regardless. Exposed as the `spotify_*`
-MCP tools and documented in `get_skill('spotify')`.
+</details>
 
-### WhatsApp function APIs (`/api/whatsapp/*`)
-`chats`, `messages`, `search`, `recent` (inbox + last-message previews), `find`
-(resolve a contact by name/number → read the chat in one hop), `draft` — **read +
-draft only; it never sends.** Reading proxies (online-only) to a **separate laptop
-agent** (Go + [whatsmeow](https://github.com/tulir/whatsmeow) + SQLite, its own linked
-device; repo `owenloh/whatsapp-agent`) reachable over **Tailscale** (`WHATSAPP_AGENT_URL`
-+ `WHATSAPP_AGENT_SECRET`). The agent resolves identity (canonical phone numbers — no raw
-`@lid` — + saved contact names) and keeps persistent local history (SQLite); if the laptop
-is off, reads return a clean *"offline"* and **nothing is stored in the cloud**. **Drafting
-needs no agent and never sends** — it returns a `wa.me/<number>?text=…` deep link that opens
-Owen's normal WhatsApp with the text pre-filled, for him to review and send himself (1:1
-only). Honest caveats: it's an unofficial WhatsApp linked device (ToS/ban risk; re-scan the
-QR ~every 2–3 weeks), reads need the laptop on, and group drafting isn't supported by the
-link scheme. Exposed as the `whatsapp_*` MCP tools and documented in `get_skill('whatsapp')`.
+<details>
+<summary><b>Notion writes: text-tools vs block-id-tools</b></summary>
 
-## Fidelity (honest notes)
+Two write surfaces by design; the `notion-master` skill routes between them.
 
-Backends are the official REST APIs, so behaviour matches the connectors closely
-but not always byte-for-byte:
+- **Text-tools (in-block prose edits):** `update-page` `update_content` (`content_updates=[{old_str, new_str}]`), `insert_content`, `replace_content`. `update_content` is fail-safe: multi-match guard (fails with match count unless `replace_all_matches=true`), block-boundary aware (a single `old_str` must resolve within one block), and child-page guard (refuses edits that would delete a child page/database unless `allow_deleting_content=true`).
+- **Block-id-tools (all structure):** `list-blocks`, `append-blocks`, `update-block`, `delete-blocks` (deterministic, only the listed ids), `move-blocks`. Use these to nest, reorder, or delete specific blocks by id, never by text match.
 
-- **Exact / clean:** all Calendar tools, the in-tray, Notion `search`, `fetch`,
-  `query-database`, `query`, `get-users`, `create-pages`, `update-page`
-  (`update_properties` / `insert_content` / `update_content` / `replace_content`),
-  `create-comment`, `get-comments`, and the block-id tools `list-blocks` /
-  `append-blocks` / `update-block` / `delete-blocks`.
-- **Best-effort:** `duplicate-page` (shallow copy of top-level blocks),
-  `create-database` / `update-data-source` (common column types; not
-  RELATION/ROLLUP/FORMULA), `move-pages` (pages only), `move-blocks` (no native
-  REST move — copies each subtree to the new spot then deletes the original, so
-  block ids change).
-- **Returns 501 (not in the public REST API):** `get-teams`, `create-view`,
-  `update-view`, and `update-page` commands `apply_template` / `update_verification`.
-  Use `query-database` for filtered reads instead of views.
+The Notion-flavored markdown dialect is served two ways: the MCP resource `alistair://docs/notion-markdown-spec` and the `notion_markdown_spec` tool. Skills are served as `get_skill` and the `alistair://skills/{slug}` resource template.
 
-### Notion writes: text-tools vs block-id-tools
+</details>
 
-There are two write surfaces, by design, and the `notion-master` skill routes
-between them:
+<details>
+<summary><b>Environment variables</b></summary>
 
-- **Text-tools — in-block PROSE edits.** `update-page` `update_content`
-  (`content_updates=[{old_str, new_str}]`), `insert_content`, `replace_content`.
-  Use these to fix a typo, reword a line, or append to a block. `update_content`
-  is **fail-safe** (mirrors claude.ai's connector, then exceeds it):
-  - **Multi-match guard** — if `old_str` matches more than once it fails (409)
-    with the match count and a snippet of each, unless `replace_all_matches=true`.
-    It never silently picks one or deletes all.
-  - **Block-boundary aware** — a single `old_str` must resolve within one block; if
-    it would span/delete across blocks it fails (400) naming them, unless
-    `allow_cross_block=true` (delete only). A partial-block match is spliced in
-    place (surrounding text + inline bold/links/`checked`/color preserved).
-  - **Child-page guard** — any edit (and `replace_content`) that would delete a
-    child page/database, including nested, fails (400) listing them unless
-    `allow_deleting_content=true`.
-- **Block-id-tools — ALL STRUCTURE.** `list-blocks` (ids + type + depth + parent),
-  `append-blocks` (typed Notion blocks, native nesting), `update-block`,
-  `delete-blocks` (deterministic — only the listed ids), `move-blocks`. Use these
-  to nest loose blocks into a toggle, reorder, or delete specific/duplicate blocks
-  by id — never delete structure by text match.
-
-The Notion-flavored markdown dialect (toggles, nesting, tables, …) is documented
-once and served two ways: the MCP resource `alistair://docs/notion-markdown-spec`
-and the equivalent `notion_markdown_spec` tool (so clients that don't load
-resources still get it). Skills are likewise served as `get_skill` **and** the
-`alistair://skills/{slug}` resource template.
-
-## Environment variables
-
-All secrets come from env vars only (see `.env.example`). Nothing is hardcoded.
+All secrets come from environment variables. Nothing is hardcoded. See `.env.example` for the full list and notes; the most important:
 
 | Var | Used by | Notes |
 |-----|---------|-------|
-| `NOTION_TOKEN` | Notion | Internal integration secret (`ntn_…`). Share the Projects + Actions DBs with it. |
+| `NOTION_TOKEN` | Notion | Internal integration secret. Share the Projects + Actions DBs with it. |
 | `PROJECTS_DB_ID`, `ACTIONS_DB_ID` | Notion | Default to the PARA DB ids; override if they change. |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` | Calendar | **Recommended durable path** — if all three are set, the service mints a fresh access token on every call (never goes stale). |
-| `GOOGLE_CALENDAR_TOKEN` | Calendar | Optional fallback Bearer token; **not needed** if the trio above is set. |
-| `GOOGLE_CALENDAR_ID`, `TIMEZONE`, `TIMEZONE_AUTO` | Calendar | `primary`; `TIMEZONE` is the home/fallback zone (`Europe/London`; `CALENDAR_TIMEZONE` alias). With `TIMEZONE_AUTO=true` (default) the service auto-detects your **current** Google Calendar timezone each call so it follows you when travelling (also surfaced in `load_context.now`); a per-call `timeZone` arg always overrides. |
-| Google scopes | Calendar + Gmail | Calendar read **+ write** needs `…/auth/calendar`; Gmail read + draft needs `gmail.readonly` + `gmail.compose`. Mint a token covering both with `scripts/get_google_token.py`, then set `GOOGLE_REFRESH_TOKEN`. |
-| `MS_CLIENT_ID`, `MS_TODO_LIST_ID`, `MS_TENANT` | In-tray | Azure public-client id; the in-tray list id; `consumers` for personal MS accounts. |
-| `GITHUB_GIST_TOKEN`, `GIST_ID`, `GIST_FILENAME` | In-tray + GitHub | Classic PAT (`gist` scope); private gist storing the MS refresh token. Also the fallback for the read/merge tools if `GITHUB_REPO_TOKEN` is unset. |
-| `GITHUB_REPO_TOKEN` | GitHub | Repo read + PR token, **distinct** from the gist token. Powers `whoami`/`list-my-repos` (account-aware: reports the account it belongs to and enumerates the repos it can reach, public + private) and the read/`merge-pr` tools. Scope is the token's — a fine-grained PAT only sees what you grant it; a classic `repo`-scope PAT sees everything the account can. Falls back to `GITHUB_GIST_TOKEN`. |
-| `SPOTIFY_COOKIES`, `SPOTIFY_USERNAME` | Spotify | Logged-in open.spotify.com session cookies (raw `k=v; k2=v2` string OR a JSON object; `sp_dc` is essential) + the account email/username. No Developer app/OAuth. Cookies expire — refresh if calls start 401ing. `SPOTIFY_PASSWORD` is optional (password login also needs a CAPTCHA solver). |
-| `WHATSAPP_AGENT_URL`, `WHATSAPP_AGENT_SECRET` | WhatsApp (read) | Base URL + shared bearer secret of the laptop read-agent (`owenloh/whatsapp-agent`, over Tailscale). Leave blank to disable reading — **drafting still works without them**. `WHATSAPP_DEFAULT_COUNTRY_CODE` (default `44`) normalises bare local numbers to E.164 for `wa.me` links. |
-| `SERVICE_API_KEY` | All `/api/*` | Optional. If set, every call must send `X-API-Key`. |
-| `RAILWAY_ENV` | Service | `production` on Railway. |
+| `GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN` | Calendar + Gmail | Recommended durable path: mints a fresh access token every call. Cover both scopes with `scripts/get_google_token.py`. |
+| `GOOGLE_CALENDAR_ID`, `TIMEZONE`, `TIMEZONE_AUTO` | Calendar | `primary`; `TIMEZONE_AUTO=true` follows your current calendar timezone when travelling. |
+| `MS_CLIENT_ID`, `MS_TODO_LIST_ID`, `MS_TENANT` | In-tray | `consumers` for personal MS accounts. |
+| `GITHUB_GIST_TOKEN`, `GIST_ID` | In-tray + GitHub | Classic PAT (`gist` scope); private gist storing the MS refresh token. |
+| `GITHUB_REPO_TOKEN` | GitHub | Repo read + PR token, distinct from the gist token. Scope is the token's. |
+| `SPOTIFY_COOKIES`, `SPOTIFY_USERNAME` | Spotify | Logged-in open.spotify.com cookies (`sp_dc` essential). Refresh when calls start 401ing. |
+| `WHATSAPP_AGENT_URL/SECRET` | WhatsApp (read) | Laptop read-agent over Tailscale. Blank disables reading; drafting still works. |
+| `SERVICE_API_KEY` | All `/api/*` | If set, every call must send `X-API-Key`. |
 
-## Run locally
+</details>
 
-```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env            # fill in real values
-uvicorn app.main:app --reload   # http://127.0.0.1:8000/docs
-```
+---
 
 ## Deploy to Railway
 
 1. Push this repo to GitHub and create a Railway service from it.
-2. Set the env vars above in the service **Variables** tab (set `RAILWAY_ENV=production`
-   and a strong `SERVICE_API_KEY`).
-3. Railway uses `railway.toml` (Nixpacks → `uvicorn app.main:app --host 0.0.0.0 --port $PORT`).
-   A `Procfile` is included as a fallback. Health check: `/health`.
+2. Set the env vars in the service **Variables** tab (`RAILWAY_ENV=production` and a strong `SERVICE_API_KEY`).
+3. Railway uses `railway.toml` (Nixpacks → `uvicorn app.main:asgi --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips=*`). Health check: `/health`.
 
-## Voice-mode setup (the triggering prompt)
+## Voice-mode setup
 
-Voice mode can't see this API on its own — it needs one small instruction
-telling it the API exists and how to discover the rest. Put a **compact pointer**
-in your **Claude profile → Personal preferences / custom instructions** (those
-are applied in voice mode; that is the deterministic home — more reliable than
-memory). Keep it small and let the model fetch `/api/manifest` and the skill
-endpoints for detail, so you don't bloat every conversation.
+Voice mode can't see the API on its own; it needs one small instruction telling it the API exists and how to discover the rest. Put a compact pointer in your **Claude profile → Personal preferences**, and let the model fetch `/api/manifest` and the skill endpoints for detail.
 
 ```
-In voice mode I have no Notion/Google Calendar connectors and no skills. When a
-request touches my Notion (projects, actions, next actions, someday, daily brief,
-references/in-tray), my Google Calendar, or my Microsoft To Do in-tray, DON'T say
-you can't — call my HTTP API instead.
-
-Base: https://<your-app>.up.railway.app   Header on every call: X-API-Key: <key>
-
-Discover: GET /api/manifest lists every tool with its exact description.
-Skill rules: GET /api/skill/{notion-master|daily-brief|notion-references-tray|microsoft-todo-intray}.
-
-Shortcuts (use directly, no need to fetch the manifest first):
-- Daily brief -> POST /api/notion/query ; POST /api/calendar/today ;
-  POST /api/intray {"action":"list"} ; then deliver per the daily-brief skill.
-- "add X to in-tray" -> POST /api/intray {"action":"add","title":"X"} ;
-  "what's in my in-tray" -> {"action":"list"}.
-- Notion writes -> first GET /api/skill/notion-master for the safe-write rules,
-  then /api/notion/fetch and /api/notion/update-page.
-Only fetch the manifest or a skill when you need detail beyond these shortcuts.
+In voice mode I have no Notion/Calendar connectors and no skills. When a request
+touches my Notion, Google Calendar, or Microsoft To Do in-tray, call my HTTP API
+instead of refusing.
+Base: https://<your-app>.up.railway.app   Header: X-API-Key: <key>
+Discover: GET /api/manifest lists every tool. Skill rules: GET /api/skill/<slug>.
+Shortcuts: daily brief -> POST /api/notion/query ; POST /api/calendar/today ;
+POST /api/intray {"action":"list"}. Add to in-tray -> POST /api/intray
+{"action":"add","title":"X"}. Notion writes -> GET /api/skill/notion-master first.
 ```
 
-Why this shape: the **manifest + skill endpoints are the "few APIs that tell it
-how to find the others"**, so the always-on prompt stays tiny. The inline
-shortcuts cover the highest-frequency intents with zero discovery round-trips
-(important for voice latency); everything else is one `GET /api/manifest` away.
+The manifest is self-describing (it carries `how_to_use`, a `shortcuts` block, and the skill catalogue), so you can shrink the prompt further and let the model bootstrap from `GET /api/manifest` on first use. Trade-off: one extra round-trip on the first voice request per session.
 
-### Even smaller (self-bootstrapping) variant
+## Extending
 
-The API is self-describing, so you can drop the inline shortcuts entirely. The
-`GET /api/manifest` response carries `how_to_use` + a `shortcuts` block (intent →
-call sequence) and the skill catalogue, and `GET /api/skill` lists each skill
-with its description. That lets the always-on prompt shrink to:
-
-```
-In voice mode I have no connectors/skills. For anything about my Notion, Google
-Calendar, or Microsoft To Do in-tray, call my HTTP API instead of refusing:
-GET https://<your-app>.up.railway.app/api/manifest  (header X-API-Key: <key>)
-and follow its "shortcuts" and tool descriptions; fetch /api/skill/<slug> for a
-skill's rules before performing it.
-```
-
-Trade-off: this costs one `GET /api/manifest` round-trip on first use each
-session (slower first reply in voice). The longer prompt above avoids that for
-the common intents — pick based on whether you care more about prompt size or
-voice latency.
-
-## Extending (future-proofing)
-
-**Adding a new tool or API integration (Google Workspace, Granola, …): follow
-[`docs/ADDING_TOOLS.md`](docs/ADDING_TOOLS.md)** — the full runbook + checklist for
-making a new capability propagate to every client (claude.ai, voice, Gemini, ChatGPT)
-on deploy + reconnect, with no per-client edits. The short version:
-
-- **More GitHub:** `app/services/github.py` (`GitHubClient`) already powers the
-  in-tray gist + `push-file`. Add a route in `app/routers/github.py` calling a new
-  client method — e.g. `POST /api/github/push-file` is already wired this way.
-- **More skills:** drop a `app/skills/data/<slug>.json` file; it is served at
-  `/api/skill/<slug>` automatically (no code change).
-- **More connector tools:** add an `op_*` in the service + a route with the verbatim
-  description + an MCP `@mcp.tool` wrapper + a `load_context` ROUTING entry. The
-  description + routing entry are the *minimum* that makes it propagate everywhere.
+Adding a new tool or integration: follow [`docs/ADDING_TOOLS.md`](docs/ADDING_TOOLS.md) for the full runbook. Short version: add an `op_*` in the service, a route with the verbatim description, an MCP `@mcp.tool` wrapper, and a `load_context` routing entry. The description plus routing entry are the minimum that makes a new capability propagate to every client (claude.ai, voice, Gemini, ChatGPT) on deploy. New skills are even simpler: drop `app/skills/data/<slug>.json` and it serves at `/api/skill/<slug>` automatically.
 
 ## Security
 
-`.env` is gitignored; only `.env.example` (placeholders) is committed. The
-uploaded skill `config.json` files contained **live secrets** (Notion `ntn_`
-token, GitHub `ghp_` PAT, gist id) — those are **not** in this repo, but since
-they were shared in plaintext you should **rotate the Notion token and the GitHub
-PAT** and keep them only in Railway's Variables.
+All secrets load from environment variables; only `.env.example` (placeholders) is committed, and `.env` is gitignored. Keep real tokens in your host's variable store (Railway Variables), never in the repo. If you set `SERVICE_API_KEY`, every `/api/*` call must present a matching `X-API-Key`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
