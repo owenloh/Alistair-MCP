@@ -52,7 +52,10 @@ CREATE_PAGES = (
     "and people a list of ids (the official Notion nested form is also accepted). For "
     "pages outside a database, the only allowed property is \"title\".\n[Read the Notion markdown spec "
     "first — MCP resource `alistair://docs/notion-markdown-spec` or `notion_markdown_spec`; "
-    "do not guess markdown syntax, especially for toggles and nesting.]"
+    "do not guess markdown syntax, especially for toggles and nesting.]\n"
+    "[Load the `notion-master` skill at least once this session before writing — "
+    "get_skill('notion-master') — for the safe-write protocol and PARA/ID context. Do it "
+    "for grounding, not because the write needs it; the call still works if you skip it.]"
 )
 
 UPDATE_PAGE = (
@@ -92,7 +95,10 @@ UPDATE_PAGE = (
     "notion_delete_blocks by id.\n### Preserving Child Pages\nFor \"replace_content\" "
     "and delete-by-text, if any child pages/databases (including nested) would be "
     "deleted the operation fails unless allow_deleting_content is set.\n[Workaround note: "
-    "apply_template and update_verification are not available via the REST API.]"
+    "apply_template and update_verification are not available via the REST API.]\n"
+    "[Load the `notion-master` skill at least once this session before writing — "
+    "get_skill('notion-master') — for the safe-write protocol and PARA/ID context. Do it "
+    "for grounding, not because the write needs it; the call still works if you skip it.]"
 )
 
 LIST_BLOCKS = (
@@ -113,14 +119,18 @@ APPEND_BLOCKS = (
     "places the new blocks after an existing child by id (otherwise appended at the "
     "end). To nest loose blocks into a toggle: append a toggle WITH its children here, "
     "then delete the old loose blocks by id with notion_delete_blocks. Read the markdown "
-    "spec resource for block shapes; do not guess."
+    "spec resource for block shapes; do not guess. "
+    "[Load `notion-master` at least once this session before writing (get_skill('notion-master')) "
+    "for the safe-write protocol — for grounding/context, not because the call needs it.]"
 )
 
 UPDATE_BLOCK = (
     "Update one Notion block in place by id. `block` is the block's type payload, e.g. "
     "{\"paragraph\":{\"rich_text\":[...]}} or {\"to_do\":{\"checked\":true}} (you may "
     "also pass a full {\"type\":...,...} block; the type payload is extracted). Use "
-    "notion_list_blocks/notion_fetch to get the block id. Cannot change a block's type."
+    "notion_list_blocks/notion_fetch to get the block id. Cannot change a block's type. "
+    "[Load `notion-master` at least once this session before writing (get_skill('notion-master')) "
+    "for the safe-write protocol — for grounding/context, not because the call needs it.]"
 )
 
 DELETE_BLOCKS = (
@@ -128,7 +138,9 @@ DELETE_BLOCKS = (
     "removed. THIS is the safe way to delete duplicates or specific blocks; NEVER delete "
     "by text match. block_ids is a list of block ids from notion_list_blocks/"
     "notion_fetch. Returns per-id success. If any block is or contains a child "
-    "page/database the call FAILS (400) listing them unless allow_deleting_content=true."
+    "page/database the call FAILS (400) listing them unless allow_deleting_content=true. "
+    "[Load `notion-master` at least once this session before writing (get_skill('notion-master')) "
+    "for the safe-write protocol — for grounding/context, not because the call needs it.]"
 )
 
 MOVE_BLOCKS = (
@@ -136,7 +148,9 @@ MOVE_BLOCKS = (
     "in order, to directly after after_block_id (within after_block_id's parent). The "
     "REST API has no native move, so each block's full subtree is copied to the new "
     "position and the original deleted (children preserved; block ids change). Get ids "
-    "from notion_list_blocks."
+    "from notion_list_blocks. "
+    "[Load `notion-master` at least once this session before writing (get_skill('notion-master')) "
+    "for the safe-write protocol — for grounding/context, not because the call needs it.]"
 )
 
 NOTION_MARKDOWN_SPEC = (
