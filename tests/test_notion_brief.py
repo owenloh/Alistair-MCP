@@ -54,6 +54,9 @@ ACTIONS = [
     action("Buy beans", "Next", []),             # qualifies (no project)
     action("Ancient task", "Next", [P_DROPPED]), # dropped -> filtered out by qualifies()
     action("Maybe later", "Someday", [P_SOMEDAY]),
+    action("Draft the deck", "In progress", [P_ACTIVE]),   # the Now backbone
+    action("Wrap up taxes", "In progress", []),            # in-progress, project-less
+    action("Finish and drop", "In progress", [P_DROPPED]), # explicit In-progress wins over project status
 ]
 
 
@@ -106,6 +109,7 @@ check("brief did not raise (no select-on-status 400)", isinstance(brief, dict))
 check("action filters use 'status' key",
       all("status" in f and "select" not in f for f in act_filters))
 check("queried Action Status == Next", {"property": "Action Status", "status": {"equals": "Next"}} in act_filters)
+check("queried Action Status == In progress", {"property": "Action Status", "status": {"equals": "In progress"}} in act_filters)
 check("queried Action Status == Someday", {"property": "Action Status", "status": {"equals": "Someday"}} in act_filters)
 
 # Content assembled correctly from the (now working) filtered reads.
@@ -113,6 +117,13 @@ next_names = {a["name"] for a in brief["NEXT_ACTIONS"]}
 check("Next actions include the qualifying ones", {"Email Kelly", "Buy beans"} <= next_names)
 check("Next actions exclude actions under a Dropped project", "Ancient task" not in next_names)
 check("Someday actions captured", {a["name"] for a in brief["SOMEDAY_ACTIONS"]} == {"Maybe later"})
+
+# In-progress = the Now backbone. It is NOT project-qualified: an explicit In-progress
+# signal is a deliberate "I'm doing this" and shows regardless of the project's status.
+inprog_names = {a["name"] for a in brief["IN_PROGRESS_ACTIONS"]}
+check("In-progress actions captured", {"Draft the deck", "Wrap up taxes"} <= inprog_names)
+check("In-progress ignores the project qualifier (explicit signal wins)", "Finish and drop" in inprog_names)
+check("In-progress kept separate from Next", not (inprog_names & next_names))
 
 # Projects Status is a select type and must still be read that way.
 check("Active projects read via select", [p["name"] for p in brief["ACTIVE_PROJECTS"]] == ["Coffee Startup"])

@@ -33,6 +33,7 @@ def token_map(settings: Settings) -> dict[str, str]:
         "{view_projects_someday_id}": settings.view_projects_someday_id or "",
         "{view_projects_all_id}": settings.view_projects_all_id or "",
         "{view_actions_next_id}": settings.view_actions_next_id or "",
+        "{view_actions_inprogress_id}": settings.view_actions_inprogress_id or "",
         "{view_actions_np_next_id}": settings.view_actions_np_next_id or "",
         "{view_actions_waiting_id}": settings.view_actions_waiting_id or "",
         "{view_actions_someday_id}": settings.view_actions_someday_id or "",

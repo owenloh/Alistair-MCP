@@ -2613,7 +2613,16 @@ def build_brief(settings: Settings) -> dict:
 
         # "Action Status" is a Notion *status*-type property (not select), so it must
         # be filtered with a `status` condition. A `select` filter here makes Notion
-        # reject the query with HTTP 400 and the whole brief loses its Next actions.
+        # reject the query with HTTP 400 and the whole brief loses its actions.
+        #
+        # "In progress" = the actions {user} has deliberately pulled into flight to
+        # finish. It is the backbone of the brief's "Now" section, so query it
+        # explicitly (the brief historically pulled only Next + Someday and missed it).
+        # Unlike Next it is NOT project-qualified: an explicit In-progress signal is a
+        # deliberate "I'm doing this" and wins regardless of the parent project status.
+        in_progress = c.query_database_all(settings.actions_db_id, {
+            "property": "Action Status", "status": {"equals": "In progress"}
+        })
         next_raw = c.query_database_all(settings.actions_db_id, {
             "property": "Action Status", "status": {"equals": "Next"}
         })
@@ -2627,6 +2636,10 @@ def build_brief(settings: Settings) -> dict:
             {"name": _title_or(p["properties"], "Project"),
              "direction": rich_text_plain(p["properties"].get("Direction", {}).get("rich_text"))}
             for p in active
+        ],
+        "IN_PROGRESS_ACTIONS": [
+            {"name": _title_or(a["properties"], "Name"), "project": project_labels(a)}
+            for a in in_progress
         ],
         "NEXT_ACTIONS": [
             {"name": _title_or(a["properties"], "Name"), "project": project_labels(a)}
