@@ -1,6 +1,6 @@
 """Spotify control via SpotAPI (https://github.com/Aran404/SpotAPI).
 
-This is the unofficial-API connector: it drives Owen's Spotify the way the web
+This is the unofficial-API connector: it drives the user's Spotify the way the web
 player does (Spotify Connect over a websocket), so it needs NO Spotify Developer
 app and NO official OAuth — just a logged-in web session (cookies). It lets
 Alistair browse playlists, search + play specific songs, and list/choose the
@@ -332,7 +332,7 @@ def _device_dict(dev) -> dict:
 
 # ---- operations: browse (read-only, no websocket) -----------------------------
 def list_playlists(settings: Settings, *, limit: int = 50) -> dict:
-    """Owen's library playlists (logged-in). Read-only."""
+    """the user's library playlists (logged-in). Read-only."""
     sp, login = _login(settings)
     pp = sp["PrivatePlaylist"](login)
     try:

@@ -61,10 +61,10 @@ there is exactly one memory.
 
 | Kind | Example | Home | Loaded |
 | --- | --- | --- | --- |
-| **Persona + routing/aliases + ID registry** (stable "constitution") | "Ali" tone; "references" → Unorganised References `37e6f0cc…`; "brief me" → daily-brief; Briefing/Projects/Actions IDs | **`load_context()`** tool | every session start |
+| **Persona + routing/aliases + ID registry** (stable "constitution") | "Ali" tone; "references" → Unorganised References the references-tray page id; "brief me" → daily-brief; Briefing/Projects/Actions IDs | **`load_context()`** tool | every session start |
 | **Skill *procedures*** | daily-brief steps; notion-master read decision tree | **`get_skill(slug)`** tool (on demand; the skill *index* sits in `load_context`) | on demand |
 | **Safety-critical rules** | safe-write: never replace whole page | **also duplicated into the tool's `description`** (`notion_update_page`) | always (in tool desc) |
-| **Accumulating facts / user-added aliases** | Owen's background; learned prefs; "from now on X means Y" | **memory store** (`get_memory`/`save_memory`) | session start + as needed |
+| **Accumulating facts / user-added aliases** | the user's background; learned prefs; "from now on X means Y" | **memory store** (`get_memory`/`save_memory`) | session start + as needed |
 
 Rule of thumb: **stable config → `load_context`**, **procedures → `get_skill`**,
 **dangerous rules → redundant in tool descriptions**, **changing/accumulating

@@ -120,7 +120,7 @@ def _resolve_tz(settings: Settings, requested: str | None) -> str:
     auto = _account_timezone(settings)
     if auto:
         return auto
-    return settings.calendar_timezone.strip() or "Europe/London"
+    return settings.calendar_timezone.strip() or "UTC"
 
 
 def _tz(settings: Settings) -> ZoneInfo:

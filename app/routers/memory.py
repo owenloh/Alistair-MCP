@@ -1,6 +1,6 @@
 """POST /api/memory/* — Alistair's long-term memory (SQLite event log).
 
-The single source of truth for what Alistair remembers about Owen. `save` is the
+The single source of truth for what Alistair remembers about {user}. `save` is the
 ONLY write path; `get` returns the ranked, budget-trimmed block to load at the
 start of a session; `list` is a raw debug/mirror view. Descriptions are written
 in Alistair's voice so they carry through to the MCP tool layer unchanged.
@@ -22,18 +22,18 @@ router = APIRouter(
 )
 
 _SAVE_DOC = (
-    "Save one durable fact about Owen to long-term memory. Use this whenever you "
+    "Save one durable fact about {user} to long-term memory. Use this whenever you "
     "learn something worth remembering across sessions — a standing fact, a "
     "preference, an open commitment, or a short summary. "
     "type: 'fact' (identity, people, constraints, allergies), 'preference' (how "
-    "Owen likes things done), 'action' (an open item/commitment), or 'summary' (a "
+    "{user} likes things done), 'action' (an open item/commitment), or 'summary' (a "
     "rolling recap). relevance 1-5: use 5 ONLY for permanent safety/identity facts "
     "that must never be forgotten (they are pinned and never evicted); 3 is the "
     "default. Writing is append-only and de-duplicated, so re-saving the same thing "
     "is safe. To forget something, send op='retract' with the same type+content."
 )
 _GET_DOC = (
-    "Load what you remember about Owen as a compact, ready-to-read block. Call this "
+    "Load what you remember about {user} as a compact, ready-to-read block. Call this "
     "at the start of every session (load_context does this for you). Returns the "
     "highest-value memories: permanent core facts are always included, the rest are "
     "ranked by recency x importance and trimmed to a token budget."
@@ -116,7 +116,7 @@ def memory_maintenance() -> dict:
     proc = load_skill("memory-maintenance") or {}
     return {
         "procedure": proc.get("instructions", ""),
-        "guardrails": "Never invent facts. Ask Owen before deleting personal data you're unsure "
+        "guardrails": "Never invent facts. Ask {user} before deleting personal data you're unsure "
                       "about. Re-assert identity/safety (relevance 5) facts before retracting any "
                       "near-duplicate. Report what you merged/retracted.",
         "store": memory_service.op_list_memory(get_settings()),

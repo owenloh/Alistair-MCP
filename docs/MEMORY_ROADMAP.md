@@ -12,7 +12,7 @@ Consolidation closes that gap. (A one-shot manual consolidation already took the
 store 78 → 32 entries.)
 
 ## V1 — client-run consolidation, no server LLM (CURRENT PLAN)
-Trigger: **at brief time.** When Owen asks for a brief, fold a light
+Trigger: **at brief time.** When the user asks for a brief, fold a light
 `memory-maintenance` pass into it (daily = obvious-duplicate merges only + surface
 anything ambiguous; weekly = a fuller sweep). On explicit request ("tidy your
 memory") run the full procedure. Mechanism = the existing `memory-maintenance`

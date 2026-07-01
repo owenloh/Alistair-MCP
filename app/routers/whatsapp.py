@@ -1,6 +1,6 @@
 """WhatsApp connector endpoints (read + draft only).
 
-The read tools (chats/messages/search) proxy to a small agent on Owen's laptop
+The read tools (chats/messages/search) proxy to a small agent on the user's laptop
 (Baileys, its own linked device) reachable over Tailscale — the MCP stays stateless
 and stores nothing. The draft tool returns a wa.me deep link and NEVER sends. Mirrors
 the Gmail router's read + draft, never-sends shape.

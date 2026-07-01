@@ -60,7 +60,7 @@ def tray_blocks():
         blk("eot", "callout", "END OF TRAY"),
     ]
 
-S = Settings(actions_db_id="2ebc58c5861747488021fcc2a37d3a97")
+S = Settings(actions_db_id="test-actions-db", references_tray_page_id="test-tray-page")
 
 # === save_reference: dry-run finds the correct anchor, writes nothing ===
 fake = FakeTray(tray_blocks())

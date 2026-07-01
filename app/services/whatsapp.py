@@ -5,14 +5,14 @@ the same hard limit the Gmail connector keeps for mail.
 
 Two halves, by design:
   * READ — ``list_chats`` / ``read_messages`` / ``search`` proxy to a small agent
-    running on Owen's laptop (Baileys, its OWN linked device), reachable over
+    running on the user's laptop (Baileys, its OWN linked device), reachable over
     Tailscale. The MCP stays stateless: it just forwards an authed HTTP GET and
     returns what the agent holds. Nothing is stored in the cloud. If the laptop is
     off, the read tools return a clean "agent offline" (ServiceError 503) — never a
     crash and never a fabrication.
   * DRAFT — ``draft`` builds a ``wa.me/<number>?text=...`` deep link (no session, no
-    network). Owen taps it and his NORMAL WhatsApp opens with the text pre-filled in
-    the compose box for him to review and SEND HIMSELF.
+    network). the user taps it and their NORMAL WhatsApp opens with the text pre-filled in
+    the compose box for them to review and SEND THEMSELVES.
 
 Reading is privacy-first (messages live only on the laptop and flow only when the
 authed read tool is called); drafting needs no session at all.
@@ -55,8 +55,8 @@ def _agent_get(settings: Settings, path: str, params: dict | None = None) -> Any
     except httpx.HTTPError as e:
         # Laptop off / unreachable: an honest "offline", not a 500.
         raise ServiceError(
-            "WhatsApp agent is offline — Owen's laptop may be off or asleep. Reading needs "
-            "it online; drafting still works.",
+            "WhatsApp agent is offline — the laptop read-agent may be off or asleep. Reading "
+            "needs it online; drafting still works.",
             status_code=503,
             detail=str(e)[:200],
         )
@@ -151,15 +151,18 @@ def find(settings: Settings, *, query: str, limit: int = 20, **_ignored) -> dict
 def _normalise_number(raw: str, default_cc: str) -> str:
     """Best-effort E.164 digits (no '+') for a wa.me link.
 
-    Strips spaces/dashes/brackets; drops a leading '+' or '00'; a bare local number
-    (leading 0) gets the default country code. Returns digits only ('' if none)."""
+    Strips spaces/dashes/brackets; drops a leading '+' or '00'. A bare local number
+    (leading 0) is internationalised with WHATSAPP_DEFAULT_COUNTRY_CODE when that is
+    set; if no country code is configured the number is left as-is (the user should
+    enter a full international number). International numbers work either way.
+    Returns digits only ('' if none)."""
     s = "".join(ch for ch in (raw or "") if ch.isdigit() or ch == "+")
     if s.startswith("+"):
         return s[1:]
     if s.startswith("00"):
         return s[2:]
     cc = "".join(ch for ch in (default_cc or "") if ch.isdigit())
-    if s.startswith("0"):
+    if s.startswith("0") and cc:
         return cc + s[1:]
     return s
 
@@ -206,8 +209,8 @@ def draft(settings: Settings, *, to: str, body: str, **_ignored) -> dict:
         "body": body,
         "link": link,
         "note": (
-            "Opens WhatsApp with this text pre-filled in the compose box. Owen reviews and "
-            "SENDS it himself — Alistair never sends."
+            "Opens WhatsApp with this text pre-filled in the compose box. You review and "
+            "SEND it yourself — Alistair never sends."
         ),
     }
     if resolved_from:

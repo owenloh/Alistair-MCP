@@ -77,7 +77,7 @@ except ServiceError as e:
 
 # === get_authenticated_user: account identity + private counts surfaced ===
 gh = mk([("GET", "/user", 200,
-         {"login": "owenloh", "name": "Owen", "id": 42, "type": "User", "html_url": "u",
+         {"login": "owenloh", "name": "Ada", "id": 42, "type": "User", "html_url": "u",
           "public_repos": 7, "total_private_repos": 3, "owned_private_repos": 2,
           "plan": {"name": "pro"}})])
 me = gh.get_authenticated_user()
@@ -134,11 +134,11 @@ check("search_code total_count", sc["total_count"] == 1)
 gh = mk([("GET", "/commits", 200, [
     {"sha": "abcdef1234567890ff", "html_url": "u",
      "commit": {"message": "fix: the thing\n\nlong body here",
-                "author": {"name": "Owen", "date": "2026-01-01T00:00:00Z"}}}])])
+                "author": {"name": "Ada", "date": "2026-01-01T00:00:00Z"}}}])])
 cm = gh.recent_commits("o", "r")
 check("commit sha truncated to 10", cm[0]["sha"] == "abcdef1234")
 check("commit message first line only", cm[0]["message"] == "fix: the thing")
-check("commit author", cm[0]["author"] == "Owen")
+check("commit author", cm[0]["author"] == "Ada")
 
 # === list_prs: head/base flattened ===
 gh = mk([("GET", "/pulls", 200, [

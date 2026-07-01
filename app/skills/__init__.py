@@ -28,6 +28,17 @@ def load_skill(slug: str) -> dict | None:
     return json.loads((_DATA / f"{slug}.json").read_text(encoding="utf-8"))
 
 
+def serve_skill(slug: str, settings) -> dict | None:
+    """load_skill, then substitute the {user}/{...id} placeholders from settings.
+
+    The raw JSON on disk carries neutral placeholders (nothing personal); this
+    resolves them to the user's own name and Notion ids at serve time.
+    """
+    from ..personalize import personalize
+    data = load_skill(slug)
+    return None if data is None else personalize(data, settings)
+
+
 @lru_cache
 def skill_index() -> list[dict]:
     """Lightweight catalogue of skills: slug, name, description, url.

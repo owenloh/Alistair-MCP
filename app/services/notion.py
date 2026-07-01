@@ -32,7 +32,7 @@ _TIMEOUT = httpx.Timeout(40.0)
 # Caps so a single fetch response can't blow up. op_fetch now paginates top-level
 # blocks (start_cursor/next_cursor), so the FULL page is always retrievable across
 # calls — these only bound ONE response. _MAX_TOTAL_BLOCKS is a high safety net
-# against a single deeply-nested top-level block exploding; depth covers Owen's
+# against a single deeply-nested top-level block exploding; depth covers real-world
 # deep toggle/column nesting.
 _MAX_CHILD_DEPTH = 6
 _MAX_TOTAL_BLOCKS = 5000
@@ -1813,9 +1813,9 @@ def op_move_blocks(settings: Settings, *, block_ids: list[str],
 # Coarse Alistair write tools — Actions-row create + References-Tray append.
 # Both are INSERT/CREATE-ONLY (never replace_content) and the tray append
 # follows the sacred read-first -> insert -> re-fetch -> verify protocol.
+# The target page ids come from settings (REFERENCES_TRAY_PAGE_ID / etc.), so
+# nothing personal is hardcoded here.
 # ---------------------------------------------------------------------------
-REFERENCES_TRAY_PAGE_ID = "37e6f0cc-dd76-8086-a07d-f6704b0c25df"  # "Unorganised References"
-LIBRARY_HUB_PAGE_ID = "1fa6f0cc-dd76-809e-8bcb-e5db5ae28237"      # parent hub — NEVER append here
 
 
 def _block_plain(block: dict) -> str:
@@ -1885,6 +1885,9 @@ def op_save_reference(settings: Settings, *, title: str, body: str | None = None
     title = (title or "").strip()
     if not title:
         raise ServiceError("save_reference requires a non-empty 'title'.", status_code=400)
+    tray_id = settings.references_tray_page_id
+    if not tray_id:
+        raise ServiceError("REFERENCES_TRAY_PAGE_ID is not configured.", status_code=503)
 
     lines = [f"#### {title}"]
     if body and body.strip():
@@ -1895,13 +1898,14 @@ def op_save_reference(settings: Settings, *, title: str, body: str | None = None
     new_blocks = markdown_to_blocks("<empty-block/>\n" + entry_md)
 
     if _client is not None:
-        return _save_reference_with(_client, title, entry_md, new_blocks, dry_run)
+        return _save_reference_with(_client, title, entry_md, new_blocks, dry_run, tray_id)
     with NotionClient(settings) as c:
-        return _save_reference_with(c, title, entry_md, new_blocks, dry_run)
+        return _save_reference_with(c, title, entry_md, new_blocks, dry_run, tray_id)
 
 
-def _save_reference_with(c, title: str, entry_md: str, new_blocks: list, dry_run: bool) -> dict:
-    blocks = c.block_children_all(REFERENCES_TRAY_PAGE_ID)
+def _save_reference_with(c, title: str, entry_md: str, new_blocks: list, dry_run: bool,
+                         tray_id: str) -> dict:
+    blocks = c.block_children_all(tray_id)
     if not blocks:
         raise ServiceError(
             "References Tray came back empty; refusing to write blindly.", status_code=502
@@ -1923,7 +1927,7 @@ def _save_reference_with(c, title: str, entry_md: str, new_blocks: list, dry_run
         )
     anchor = blocks[i]
     plan = {
-        "tray_page": REFERENCES_TRAY_PAGE_ID,
+        "tray_page": tray_id,
         "anchor_id": anchor["id"],
         "anchor_preview": _block_plain(anchor)[:80],
         "entry_md": entry_md,
@@ -1933,10 +1937,10 @@ def _save_reference_with(c, title: str, entry_md: str, new_blocks: list, dry_run
         return {"wrote": False, "dry_run": True, "plan": plan}
 
     before = len(blocks)
-    c.append_children(REFERENCES_TRAY_PAGE_ID, new_blocks, after=anchor["id"])
+    c.append_children(tray_id, new_blocks, after=anchor["id"])
 
     # Re-fetch and verify only the intended change landed.
-    after_blocks = c.block_children_all(REFERENCES_TRAY_PAGE_ID)
+    after_blocks = c.block_children_all(tray_id)
     grew_by = len(after_blocks) - before
     entry_present = any(title in _block_plain(b) for b in after_blocks)
     eot_after = next((j for j, b in enumerate(after_blocks) if _is_end_of_tray(b)), None)
