@@ -2611,12 +2611,15 @@ def build_brief(settings: Settings) -> dict:
         active = [p for p in all_projects if (p["properties"].get("Status", {}).get("select") or {}).get("name") == "Active"]
         someday_p = [p for p in all_projects if (p["properties"].get("Status", {}).get("select") or {}).get("name") == "Someday"]
 
+        # "Action Status" is a Notion *status*-type property (not select), so it must
+        # be filtered with a `status` condition. A `select` filter here makes Notion
+        # reject the query with HTTP 400 and the whole brief loses its Next actions.
         next_raw = c.query_database_all(settings.actions_db_id, {
-            "property": "Action Status", "select": {"equals": "Next"}
+            "property": "Action Status", "status": {"equals": "Next"}
         })
         next_actions = [a for a in next_raw if qualifies(a)]
         someday_a = c.query_database_all(settings.actions_db_id, {
-            "property": "Action Status", "select": {"equals": "Someday"}
+            "property": "Action Status", "status": {"equals": "Someday"}
         })
 
     return {
