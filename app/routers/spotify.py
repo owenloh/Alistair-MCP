@@ -1,6 +1,6 @@
 """Spotify connector endpoints (unofficial API via SpotAPI).
 
-HTTP surface for controlling Owen's Spotify: browse playlists, search + play
+HTTP surface for controlling the owner's Spotify: browse playlists, search + play
 songs, and list/choose the device playback runs on. One POST endpoint per tool,
 each forwarding parsed args to a function in ``app.services.spotify``. Request
 models are defined inline here (like the calendar/notion routers); the verbatim

@@ -1,7 +1,7 @@
 """Single-user OAuth 2.1 authorization server for the Alistair MCP.
 
 claude.ai custom connectors require OAuth (not bearer-only). Alistair is
-single-user (just Owen), so this is the minimal correct shape:
+single-user (just the owner), so this is the minimal correct shape:
 
   * **Dynamic Client Registration** is open, so claude.ai can self-register.
   * **/authorize auto-approves** — there is exactly one user, so it mints an

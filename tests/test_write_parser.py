@@ -210,7 +210,7 @@ dtm = _inline_to_rich('<mention-date start="2026-06-24" startTime="14:30" timeZo
 check("datetime start combined", dtm[0]["mention"]["date"]["start"] == "2026-06-24T14:30")
 check("datetime tz", dtm[0]["mention"]["date"]["time_zone"] == "Europe/London")
 # user mention with url
-um = _inline_to_rich('<mention-user url="https://app.notion.com/p/11112222333344445555666677778888">Owen</mention-user>')
+um = _inline_to_rich('<mention-user url="https://app.notion.com/p/11112222333344445555666677778888">Ada</mention-user>')
 check("user mention id", um[0]["mention"]["user"]["id"] == "11112222-3333-4444-5555-666677778888")
 
 # rich_text_md emits span for color + underline round-trip

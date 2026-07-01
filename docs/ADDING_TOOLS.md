@@ -47,7 +47,7 @@ Look at `notion_list_blocks` / `search_memory` as worked examples end-to-end.
    read-vs-write, and any confirm-first rule. If a tool needs an external doc to be used
    correctly, the description is incomplete.
 6. **`load_context` routing (universal).** Add a `ROUTING` entry in `app/services/alistair.py`
-   mapping "what Owen says" → the new tool(s); add a `SAFETY` line if it's irreversible.
+   mapping "what the operator says" → the new tool(s); add a `SAFETY` line if it's irreversible.
    `load_context` is itself a tool, so this reaches every client.
 7. **Skill — only if it has multi-step nuance.** If usage is more than a description can
    hold (a protocol, ordering, gotchas), add `app/skills/data/<name>.json`. It's

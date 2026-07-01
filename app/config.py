@@ -1,9 +1,11 @@
-"""Central settings — every secret comes from an environment variable, never hardcoded.
+"""Central settings — every secret AND every personal identifier comes from an
+environment variable, never hardcoded (so this is safe to publish).
 
-Defaults are provided only for non-secret identifiers (database ids, timezone,
-API versions). All tokens default to None and the relevant endpoint returns a
-clear 503 if its secret is missing, so the app still boots (and the skill
-endpoints still work) even when connector secrets are absent.
+Non-secret behavioural defaults are provided (timezone, API versions, token decay).
+Secrets default to None and personal identifiers (the owner's name, Notion database
+and page ids) default to empty; the relevant endpoint returns a clear 503 when a
+required one is missing, so the app still boots (and the skill endpoints still work)
+even when connector config is absent. Set your own values in .env / the host's vars.
 """
 from __future__ import annotations
 
@@ -22,6 +24,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # ---- Owner / personalisation ----
+    # The person this assistant works for. Every user-facing string uses the neutral
+    # placeholder "{owner}", substituted with this at the model/HTTP boundary, so the
+    # code ships with NO hardcoded personal name. Set OWNER_NAME in your .env.
+    owner_name: str = "the operator"
+
     # ---- Service ----
     railway_env: str = "development"
     service_api_key: str | None = None
@@ -36,10 +44,18 @@ class Settings(BaseSettings):
     oauth_approval_password: str | None = None
 
     # ---- Notion ----
+    # No IDs are hardcoded: set your own workspace's ids via the env vars below.
+    # They default to empty, and the relevant endpoint returns a clear 503 when a
+    # required id is missing (the same graceful-degrade pattern used for secrets).
     notion_token: str | None = None
     notion_version: str = "2022-06-28"
-    projects_db_id: str = "b9c0cd8cfa6c46d195ed87d7ef97d971"
-    actions_db_id: str = "2ebc58c5861747488021fcc2a37d3a97"
+    projects_db_id: str = ""            # PROJECTS_DB_ID — Notion database (REST id)
+    actions_db_id: str = ""             # ACTIONS_DB_ID  — Notion database (REST id)
+    # Notion page ids the code writes to / references. Empty by default so nothing
+    # personal is baked in; set them to your own pages to enable those features.
+    references_tray_page_id: str = ""   # REFERENCES_TRAY_PAGE_ID — save_reference target
+    library_hub_page_id: str = ""       # LIBRARY_HUB_PAGE_ID — parent hub (NEVER written)
+    briefing_page_id: str = ""          # BRIEFING_PAGE_ID — daily-brief write target
 
     # ---- Google Calendar ----
     google_calendar_token: str | None = None
@@ -82,9 +98,10 @@ class Settings(BaseSettings):
     spotify_password: str | None = None  # optional; only for password login + a solver
 
     # ---- WhatsApp (read via a laptop agent + draft via wa.me links; NEVER sends) ----
-    # Reading proxies to a small Baileys agent on Owen's laptop (its own linked device),
-    # reachable over Tailscale; the MCP stores nothing and only reads when the laptop is
-    # online. Drafting needs none of this — it builds a wa.me deep link Owen sends himself.
+    # Reading proxies to a small Baileys agent on the owner's laptop (its own linked
+    # device), reachable over Tailscale; the MCP stores nothing and only reads when the
+    # laptop is online. Drafting needs none of this — it builds a wa.me deep link the
+    # owner sends themselves.
     whatsapp_agent_url: str | None = None       # base URL of the laptop read-agent
     whatsapp_agent_secret: str | None = None    # shared bearer secret for that agent
     whatsapp_default_country_code: str = "44"   # normalise bare local numbers to E.164

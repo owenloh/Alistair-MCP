@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from ..config import get_settings
+from ..personalize import personalize
 from ..security import require_api_key
-from ..skills import list_slugs, load_skill, skill_index
+from ..skills import list_slugs, serve_skill, skill_index
 
 router = APIRouter(
     prefix="/api/skill",
@@ -22,14 +24,14 @@ router = APIRouter(
 
 @router.get("", summary="List available skills")
 def index() -> dict:
-    return {
+    return personalize({
         "skills": skill_index(),
         "usage": (
             "GET /api/skill/{slug} for a skill's full rules. Fetch the relevant "
             "skill before performing it — e.g. notion-master for the Notion "
             "safe-write rules before any /api/notion write."
         ),
-    }
+    }, get_settings())
 
 
 @router.get(
@@ -40,7 +42,7 @@ def index() -> dict:
     "notion-references-tray, microsoft-todo-intray.",
 )
 def get_skill(slug: str) -> dict:
-    data = load_skill(slug)
+    data = serve_skill(slug, get_settings())
     if data is None:
         raise HTTPException(
             status_code=404,

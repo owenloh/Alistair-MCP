@@ -104,12 +104,14 @@ The Notion-flavored markdown dialect is served two ways: the MCP resource `alist
 <details>
 <summary><b>Environment variables</b></summary>
 
-All secrets come from environment variables. Nothing is hardcoded. See `.env.example` for the full list and notes; the most important:
+All secrets **and personal identifiers** come from environment variables. Nothing is hardcoded, so the repo is safe to publish and fork. See `.env.example` for the full list and notes; the most important:
 
 | Var | Used by | Notes |
 |-----|---------|-------|
+| `OWNER_NAME` | Persona | Who the assistant works for. Personalises every user-facing string. Defaults to a neutral "the operator" if unset. |
 | `NOTION_TOKEN` | Notion | Internal integration secret. Share the Projects + Actions DBs with it. |
-| `PROJECTS_DB_ID`, `ACTIONS_DB_ID` | Notion | Default to the PARA DB ids; override if they change. |
+| `PROJECTS_DB_ID`, `ACTIONS_DB_ID` | Notion | Your Notion database ids (from each DB's URL). Blank = that feature is off. |
+| `REFERENCES_TRAY_PAGE_ID`, `LIBRARY_HUB_PAGE_ID`, `BRIEFING_PAGE_ID` | Notion | Your page ids for `save_reference` / the daily brief. Blank = off. |
 | `GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN` | Calendar + Gmail | Recommended durable path: mints a fresh access token every call. Cover both scopes with `scripts/get_google_token.py`. |
 | `GOOGLE_CALENDAR_ID`, `TIMEZONE`, `TIMEZONE_AUTO` | Calendar | `primary`; `TIMEZONE_AUTO=true` follows your current calendar timezone when travelling. |
 | `MS_CLIENT_ID`, `MS_TODO_LIST_ID`, `MS_TENANT` | In-tray | `consumers` for personal MS accounts. |

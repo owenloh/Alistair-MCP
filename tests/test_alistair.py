@@ -17,7 +17,14 @@ def fresh_settings(**kw):
     return Settings(memory_db_path=os.path.join(d, "mem.db"), **kw)
 
 # === load_context: shape + content ===
-s = fresh_settings()
+# Ids + owner name come from settings (env) — nothing personal is hardcoded, so the
+# test supplies its own sample values and asserts they flow through + personalise.
+s = fresh_settings(
+    owner_name="Ada",
+    references_tray_page_id="tray-abc",
+    briefing_page_id="brief-def",
+    library_hub_page_id="hub-ghi",
+)
 ctx = a.load_context(s)
 check("has persona", ctx["persona"]["name"] == "Alistair")
 check("persona has voice", "brutally honest" in ctx["persona"]["voice"])
@@ -26,9 +33,14 @@ check("routing present", isinstance(ctx["routing"], list) and len(ctx["routing"]
 check("routing maps references", any("references" in r["says"] for r in ctx["routing"]))
 check("routing maps github account discovery", any("github_whoami" in r["use"] for r in ctx["routing"]))
 check("id registry has projects/actions", "projects_db" in ctx["id_registry"] and "actions_db" in ctx["id_registry"])
-check("id registry references tray", ctx["id_registry"]["references_tray_page"].startswith("37e6f0cc"))
-check("id registry briefing page", ctx["id_registry"]["briefing_page"].startswith("3806f0cc"))
+check("id registry references tray from settings", ctx["id_registry"]["references_tray_page"] == "tray-abc")
+check("id registry briefing page from settings", ctx["id_registry"]["briefing_page"] == "brief-def")
 check("library hub distinct from tray", ctx["id_registry"]["library_hub_page"] != ctx["id_registry"]["references_tray_page"])
+# Personalisation: owner name substituted, and no raw placeholder leaks anywhere.
+import json as _json
+_ctx_blob = _json.dumps(ctx)
+check("owner name substituted into persona", "Ada's operations assistant" in ctx["persona"]["role"])
+check("no raw {owner} placeholder leaks", "{owner}" not in _ctx_blob)
 check("safety mentions replace_content", any("replace_content" in x for x in ctx["safety"]))
 check("safety mentions sacred read-first", any("read-first" in x for x in ctx["safety"]))
 check("skills index present", isinstance(ctx["skills"], list) and len(ctx["skills"]) >= 1)
@@ -36,7 +48,7 @@ check("memory block present", "memory_block" in ctx["memory"])
 check("how_to mentions Alistair", "Alistair" in ctx["how_to"])
 
 # === load_context: live memory composed in ===
-m.op_save_memory(s, "Owen is allergic to penicillin", type_="fact", relevance=5)
+m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=5)
 ctx2 = a.load_context(s)
 check("memory block reflects saved fact", "penicillin" in ctx2["memory"]["memory_block"].lower())
 check("memory total_entries == 1", ctx2["memory"]["total_entries"] == 1)

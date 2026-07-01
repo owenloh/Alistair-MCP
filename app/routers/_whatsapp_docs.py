@@ -1,25 +1,25 @@
 """Descriptions for the WhatsApp connector tools (read + draft only).
 
 Same plain, behaviour-first style as the other connectors. The read tools proxy to a
-small agent on Owen's laptop (online-only); the draft tool returns a wa.me link and
+small agent on {owner}'s laptop (online-only); the draft tool returns a wa.me link and
 NEVER sends.
 """
 
 CHATS = (
-    "List Owen's recent WhatsApp chats (chat id/jid, name, last-message time, unread). "
-    "Read-only, and ONLINE-ONLY: it reads from the WhatsApp agent on Owen's laptop, so it "
+    "List {owner}'s recent WhatsApp chats (chat id/jid, name, last-message time, unread). "
+    "Read-only, and ONLINE-ONLY: it reads from the WhatsApp agent on {owner}'s laptop, so it "
     "only works while that laptop is on — if it's offline the tool says so plainly (it never "
     "fabricates). Use a returned chat id with whatsapp/messages to read that conversation."
 )
 
 READ = (
     "Read recent messages in one WhatsApp chat by its chat id/jid (from the chats list). "
-    "Read-only, online-only (via the laptop agent). Summarise for Owen; it is his private "
+    "Read-only, online-only (via the laptop agent). Summarise for {owner}; it is his private "
     "messaging — never repeat secrets, OTP/2FA codes, or passwords you see."
 )
 
 SEARCH = (
-    "Search Owen's WhatsApp messages by text. Read-only, online-only (via the laptop agent). "
+    "Search {owner}'s WhatsApp messages by text. Read-only, online-only (via the laptop agent). "
     "Returns matching messages with their chat id so you can read the full thread."
 )
 
@@ -37,10 +37,10 @@ FIND = (
 )
 
 DRAFT = (
-    "Draft a WhatsApp message — returns a wa.me link that opens Owen's NORMAL WhatsApp with "
+    "Draft a WhatsApp message — returns a wa.me link that opens {owner}'s NORMAL WhatsApp with "
     "the text PRE-FILLED in the compose box for him to review and SEND HIMSELF. It NEVER "
     "sends, and needs no laptop/session. Give 'to' as a phone number (any format; a bare "
     "local number uses the default country code) or a contact name (resolved via the laptop "
-    "agent if it's online), and 'body' as the message. 1:1 chats only. Write in Owen's voice, "
+    "agent if it's online), and 'body' as the message. 1:1 chats only. Write in {owner}'s voice, "
     "keep it tight, then hand him the link."
 )

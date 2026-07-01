@@ -5,13 +5,13 @@ the same hard limit the Gmail connector keeps for mail.
 
 Two halves, by design:
   * READ — ``list_chats`` / ``read_messages`` / ``search`` proxy to a small agent
-    running on Owen's laptop (Baileys, its OWN linked device), reachable over
+    running on the owner's laptop (Baileys, its OWN linked device), reachable over
     Tailscale. The MCP stays stateless: it just forwards an authed HTTP GET and
     returns what the agent holds. Nothing is stored in the cloud. If the laptop is
     off, the read tools return a clean "agent offline" (ServiceError 503) — never a
     crash and never a fabrication.
   * DRAFT — ``draft`` builds a ``wa.me/<number>?text=...`` deep link (no session, no
-    network). Owen taps it and his NORMAL WhatsApp opens with the text pre-filled in
+    network). the owner taps it and his NORMAL WhatsApp opens with the text pre-filled in
     the compose box for him to review and SEND HIMSELF.
 
 Reading is privacy-first (messages live only on the laptop and flow only when the
@@ -55,8 +55,8 @@ def _agent_get(settings: Settings, path: str, params: dict | None = None) -> Any
     except httpx.HTTPError as e:
         # Laptop off / unreachable: an honest "offline", not a 500.
         raise ServiceError(
-            "WhatsApp agent is offline — Owen's laptop may be off or asleep. Reading needs "
-            "it online; drafting still works.",
+            "WhatsApp agent is offline — the laptop read-agent may be off or asleep. Reading "
+            "needs it online; drafting still works.",
             status_code=503,
             detail=str(e)[:200],
         )
@@ -206,8 +206,8 @@ def draft(settings: Settings, *, to: str, body: str, **_ignored) -> dict:
         "body": body,
         "link": link,
         "note": (
-            "Opens WhatsApp with this text pre-filled in the compose box. Owen reviews and "
-            "SENDS it himself — Alistair never sends."
+            "Opens WhatsApp with this text pre-filled in the compose box. You review and "
+            "SEND it yourself — Alistair never sends."
         ),
     }
     if resolved_from:

@@ -20,6 +20,8 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .config import get_settings
 from .mcp_server import OAUTH_ENABLED, OAUTH_PATHS, mcp, mcp_asgi, oauth_provider
+from .personalize import apply as _apply
+from .personalize import personalize, token_map
 from .routers import alistair, calendar, github, gmail, intray, memory, notion, skill, spotify, whatsapp
 from .services import ServiceError
 from .skills import skill_index
@@ -54,13 +56,13 @@ SHORTCUTS = [
     {"intent": "draft an email / reply (DRAFT only — never sends)",
      "calls": ["GET /api/skill/gmail  (drafting etiquette first)",
                "POST /api/gmail/create-draft {\"to\":\"..\",\"subject\":\"..\",\"body\":\"..\",\"threadId\":\"<for a reply>\"}"],
-     "then": "show Owen the draft; sending stays his action in Gmail"},
+     "then": "show {owner} the draft; sending stays his action in Gmail"},
     {"intent": "project status / what's happening with <project> / open PRs",
      "calls": ["POST /api/alistair/project-context {\"owner\":\"<owner>\",\"repo\":\"<repo>\"}"],
      "then": "summarise what moved / what's waiting in Alistair's voice"},
     {"intent": "merge a pull request (always preview first)",
      "calls": ["POST /api/github/merge-pr {\"owner\":\"..\",\"repo\":\"..\",\"number\":N}  (preview only)",
-               "POST /api/github/merge-pr {\"owner\":\"..\",\"repo\":\"..\",\"number\":N,\"confirm\":true}  (after Owen confirms)"]},
+               "POST /api/github/merge-pr {\"owner\":\"..\",\"repo\":\"..\",\"number\":N,\"confirm\":true}  (after {owner} confirms)"]},
     {"intent": "what's my GitHub account / which repos do I have / find a repo",
      "calls": ["POST /api/github/whoami", "POST /api/github/list-my-repos"],
      "then": "use the returned full_name as owner/repo for the per-repo tools"},
@@ -124,6 +126,16 @@ app.include_router(memory.router)
 app.include_router(alistair.router)
 # Skills (description APIs)
 app.include_router(skill.router)
+
+# Personalise the whole REST surface once, from env: substitute the {owner}/{*_id}
+# placeholders in every route description (so /docs, /openapi.json and /api/manifest
+# read correctly) and in the intent shortcuts. Nothing personal is baked into source.
+_TOKENS = token_map(get_settings())
+for _route in app.routes:
+    _desc = getattr(_route, "description", None)
+    if isinstance(_desc, str):
+        _route.description = _apply(_desc, _TOKENS)
+SHORTCUTS = personalize(SHORTCUTS, get_settings())
 
 
 @app.exception_handler(ServiceError)
@@ -230,7 +242,7 @@ def manifest() -> dict:
     counts = {k: len(v) for k, v in function_apis.items()}
     counts["skills"] = len(description_apis["skills"])
     counts["total"] = sum(counts.values())
-    return {
+    return personalize({
         "service": "Alistair Skills API",
         "version": __version__,
         "how_to_use": (
@@ -243,7 +255,7 @@ def manifest() -> dict:
         "function_apis": function_apis,
         "description_apis": description_apis,
         "counts": counts,
-    }
+    }, get_settings())
 
 
 # ---- OAuth approval gate (operator login shown on /authorize) ----

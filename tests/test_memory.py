@@ -99,13 +99,13 @@ check("rest content absent after trim", "trivia number" not in blk2)
 # === IO: save/get/list round trip with injected time ===
 s = fresh_settings(memory_top_n=8, memory_max_tokens=1200, memory_core_relevance=5)
 check("created on first save",
-      m.op_save_memory(s, "Owen is allergic to penicillin", type_="fact", relevance=5, now=T0)["status"] == "created")
+      m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=5, now=T0)["status"] == "created")
 check("noop on identical save",
-      m.op_save_memory(s, "Owen is allergic to penicillin", type_="fact", relevance=5, now=T1)["status"] == "noop")
+      m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=5, now=T1)["status"] == "noop")
 check("updated on relevance change",
-      m.op_save_memory(s, "Owen is allergic to penicillin", type_="fact", relevance=4, now=T1)["status"] == "updated")
+      m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=4, now=T1)["status"] == "updated")
 # restore to core (rel 5) so the recall assertions below treat it as pinned
-m.op_save_memory(s, "Owen is allergic to penicillin", type_="fact", relevance=5, now=T1)
+m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=5, now=T1)
 m.op_save_memory(s, "Prefers concise replies", type_="preference", relevance=3, now=T1)
 m.op_save_memory(s, "Ship the memory layer", type_="action", relevance=3, now=T1)
 
@@ -155,7 +155,7 @@ check("data survives new connection", m.op_get_memory(s2, now=NOW)["total_entrie
 # === IO: search_memory recalls beyond the loaded top-N block ===
 # Fresh store: 1 core fact + many low-relevance facts so get_memory's tail can't hold them all.
 ss = fresh_settings(memory_top_n=2, memory_max_tokens=200, memory_core_relevance=5)
-m.op_save_memory(ss, "Owen's GitHub owner is owenloh", type_="fact", relevance=5, now=T1)
+m.op_save_memory(ss, "Ada's GitHub owner is owenloh", type_="fact", relevance=5, now=T1)
 for i in range(12):
     m.op_save_memory(ss, f"Old project number {i} called Catalon-{i}", type_="fact", relevance=2, now=T0)
 loaded = m.op_get_memory(ss, now=NOW)

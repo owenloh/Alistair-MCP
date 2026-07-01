@@ -23,13 +23,13 @@ router = APIRouter(
 
 _LOAD_CONTEXT_DOC = (
     "Load Alistair's operating context — call this FIRST at the start of every session. "
-    "Returns who Alistair is (persona + voice), how to route what Owen says to the right "
+    "Returns who Alistair is (persona + voice), how to route what {owner} says to the right "
     "tool, the stable Notion/PARA ID registry, the non-negotiable safety rules, the skill "
     "index (fetch a skill's full rules on demand with GET /api/skill/{slug}), and the live "
-    "memory block of what you already know about Owen. Read-only."
+    "memory block of what you already know about {owner}. Read-only."
 )
 _DAILY_BRIEF_DOC = (
-    "Gather everything the daily brief needs in one call: Owen's Notion structure (active "
+    "Gather everything the daily brief needs in one call: {owner}'s Notion structure (active "
     "projects, Next actions, Someday items), today's Google Calendar, and the in-tray count. "
     "Any unconfigured or failing source is reported under 'unavailable' instead of failing the "
     "call. Read-only — it proposes, it never files. Then deliver per the daily-brief skill."
@@ -47,7 +47,7 @@ def daily_brief() -> dict:
 
 
 _SAVE_REFERENCE_DOC = (
-    "Append a reference to Owen's Notion References Tray (the 'Unorganised References' page) "
+    "Append a reference to {owner}'s Notion References Tray (the 'Unorganised References' page) "
     "when he says 'add to tray', 'save this reference', etc. INSERT-ONLY and safe: it reads the "
     "tray first, finds the last entry above the END-OF-TRAY boundary, inserts one spacer + your "
     "entry there (NEVER overwrites the page), then re-fetches and verifies nothing else changed. "
@@ -56,7 +56,7 @@ _SAVE_REFERENCE_DOC = (
     "preview the exact placement without writing. Never writes to the Library hub."
 )
 _ADD_ACTION_DOC = (
-    "Create ONE Next action in Owen's Notion Actions database when he EXPLICITLY asks to add a "
+    "Create ONE Next action in {owner}'s Notion Actions database when he EXPLICITLY asks to add a "
     "task/action (not during the daily brief, which only proposes). Non-destructive create. "
     "name is the action title; status defaults to 'Next' (Next/Waiting/Someday/Done); due is an "
     "optional ISO date. project optionally files it under one or more Projects (a Notion page "
@@ -95,10 +95,10 @@ def add_action(body: AddActionRequest) -> dict:
 
 
 _PROJECT_CONTEXT_DOC = (
-    "Pull a project's live GitHub state in one call when Owen asks 'what's happening with "
+    "Pull a project's live GitHub state in one call when {owner} asks 'what's happening with "
     "<project>', 'where's project X at', or 'any open PRs'. Composes repo metadata, recent "
     "commits, open pull requests, open issues, and a README excerpt for owner/repo. This is the "
-    "GitHub side of the daily brief: it fishes the live detail Owen's Notion project pages link "
+    "GitHub side of the daily brief: it fishes the live detail {owner}'s Notion project pages link "
     "out to. Read-only and graceful — any failing source is reported under 'unavailable', not "
     "fatal. Then summarise what moved / what's waiting in Alistair's voice; propose, don't act."
 )

@@ -119,12 +119,12 @@ check("clean_track duration", ct["duration_ms"] == 1234)
 # === playlist extraction: known libraryV3 path ===
 lib = {"data": {"me": {"libraryV3": {"items": [
     {"item": {"data": {"uri": "spotify:playlist:P1", "name": "Chill",
-                       "ownerV2": {"data": {"name": "Owen"}}, "content": {"totalCount": 12}}}},
+                       "ownerV2": {"data": {"name": "Ada"}}, "content": {"totalCount": 12}}}},
     {"item": {"data": {"uri": "spotify:album:A1", "name": "Some Album"}}},  # not a playlist -> skipped
 ]}}}}
 pls = sp._extract_playlists(lib, 50)
 check("extract_playlists finds the playlist", len(pls) == 1 and pls[0]["uri"] == "spotify:playlist:P1")
-check("extract_playlists owner", pls[0]["owner"] == "Owen")
+check("extract_playlists owner", pls[0]["owner"] == "Ada")
 check("extract_playlists track count", pls[0]["total_tracks"] == 12)
 check("extract_playlists skips non-playlist", all(p["uri"].startswith("spotify:playlist:") for p in pls))
 
@@ -145,7 +145,7 @@ check("device volume -> 100%", dd["volume_percent"] == 100)
 check("device fields", dd["id"] == "d1" and dd["name"] == "Phone" and dd["type"] == "Computer")
 
 # === device resolution: id, name substring, none, ambiguous ===
-devs = FakeDevices([FakeDevice("idA", "Owen's iPhone"), FakeDevice("idB", "Kitchen Speaker"),
+devs = FakeDevices([FakeDevice("idA", "Ada's iPhone"), FakeDevice("idB", "Kitchen Speaker"),
                     FakeDevice("idC", "Office Speaker")], active="idA")
 check("resolve by exact id", sp._resolve_device(devs, "idB") == "idB")
 check("resolve by unique name fragment", sp._resolve_device(devs, "iphone") == "idA")

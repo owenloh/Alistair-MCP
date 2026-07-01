@@ -67,7 +67,7 @@ st_plain = Settings()
 d = whatsapp.draft(st_plain, to="+44 7700 900000", body="hi there")
 check("draft builds wa.me link", d["link"] == "https://wa.me/447700900000?text=hi%20there")
 check("draft strips to digits", d["number"] == "447700900000")
-check("draft note says owen sends himself", "send" in d["note"].lower() and "himself" in d["note"].lower())
+check("draft note says the user sends it themselves", "send" in d["note"].lower() and "yourself" in d["note"].lower())
 
 # a bare local number gets the default country code (44)
 d2 = whatsapp.draft(st_plain, to="07700900000", body="yo")

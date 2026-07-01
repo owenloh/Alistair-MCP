@@ -183,7 +183,7 @@ class GitHubClient:
             "following": d.get("following"),
         }
         # Private counts + plan appear only on the authenticated /user view (and only
-        # when the token carries the scope); include them when present so Owen can see
+        # when the token carries the scope); include them when present so the caller can see
         # how many private repos the token reaches.
         for k in ("total_private_repos", "owned_private_repos", "private_gists"):
             if k in d:
