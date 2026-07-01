@@ -58,6 +58,25 @@ class Settings(BaseSettings):
     library_hub_page_id: str = ""       # LIBRARY_HUB_PAGE_ID — parent hub (NEVER written)
     briefing_page_id: str = ""          # BRIEFING_PAGE_ID — daily-brief write target
 
+    # ---- Notion workspace layout (GTD/PARA) ----
+    # The structure is generic; only these ids pin it to a specific workspace. They
+    # are referenced in the skill instructions (via placeholders), never hardcoded.
+    # All default to empty; set them to your own collection/view/page ids. Collection
+    # ids power schema reads (collection:// urls); view ids are the saved filtered
+    # lists (view:// urls) the daily/weekly brief reads.
+    areas_collection_id: str = ""        # AREAS_COLLECTION_ID
+    projects_collection_id: str = ""     # PROJECTS_COLLECTION_ID
+    actions_collection_id: str = ""      # ACTIONS_COLLECTION_ID
+    mission_control_page_id: str = ""    # MISSION_CONTROL_PAGE_ID (Briefing page's parent)
+    view_projects_active_id: str = ""    # VIEW_PROJECTS_ACTIVE_ID
+    view_projects_someday_id: str = ""   # VIEW_PROJECTS_SOMEDAY_ID
+    view_projects_all_id: str = ""       # VIEW_PROJECTS_ALL_ID
+    view_actions_next_id: str = ""       # VIEW_ACTIONS_NEXT_ID
+    view_actions_np_next_id: str = ""    # VIEW_ACTIONS_NP_NEXT_ID
+    view_actions_waiting_id: str = ""    # VIEW_ACTIONS_WAITING_ID
+    view_actions_someday_id: str = ""    # VIEW_ACTIONS_SOMEDAY_ID
+    view_actions_all_id: str = ""        # VIEW_ACTIONS_ALL_ID
+
     # ---- Google Calendar ----
     google_calendar_token: str | None = None
     google_calendar_id: str = "primary"
@@ -107,7 +126,9 @@ class Settings(BaseSettings):
     # user sends themselves.
     whatsapp_agent_url: str | None = None       # base URL of the laptop read-agent
     whatsapp_agent_secret: str | None = None    # shared bearer secret for that agent
-    whatsapp_default_country_code: str = "44"   # normalise bare local numbers to E.164
+    # Country code for internationalising BARE LOCAL numbers (e.g. UK 07… -> 447…).
+    # Blank by default (no country baked in); international numbers work regardless.
+    whatsapp_default_country_code: str = ""      # WHATSAPP_DEFAULT_COUNTRY_CODE
 
     # ---- Memory (SQLite append-only event log) ----
     # Railway sets RAILWAY_VOLUME_MOUNT_PATH automatically when a volume is

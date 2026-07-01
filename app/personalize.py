@@ -24,6 +24,19 @@ def token_map(settings: Settings) -> dict[str, str]:
         "{references_tray_id}": settings.references_tray_page_id or "",
         "{library_hub_id}": settings.library_hub_page_id or "",
         "{briefing_id}": settings.briefing_page_id or "",
+        # Notion workspace layout (GTD/PARA) — collection/view/page ids from env.
+        "{areas_collection_id}": settings.areas_collection_id or "",
+        "{projects_collection_id}": settings.projects_collection_id or "",
+        "{actions_collection_id}": settings.actions_collection_id or "",
+        "{mission_control_id}": settings.mission_control_page_id or "",
+        "{view_projects_active_id}": settings.view_projects_active_id or "",
+        "{view_projects_someday_id}": settings.view_projects_someday_id or "",
+        "{view_projects_all_id}": settings.view_projects_all_id or "",
+        "{view_actions_next_id}": settings.view_actions_next_id or "",
+        "{view_actions_np_next_id}": settings.view_actions_np_next_id or "",
+        "{view_actions_waiting_id}": settings.view_actions_waiting_id or "",
+        "{view_actions_someday_id}": settings.view_actions_someday_id or "",
+        "{view_actions_all_id}": settings.view_actions_all_id or "",
     }
 
 

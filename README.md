@@ -112,6 +112,7 @@ All secrets **and personal identifiers** come from environment variables. Nothin
 | `NOTION_TOKEN` | Notion | Internal integration secret. Share the Projects + Actions DBs with it. |
 | `PROJECTS_DB_ID`, `ACTIONS_DB_ID` | Notion | Your Notion database ids (from each DB's URL). Blank = that feature is off. |
 | `REFERENCES_TRAY_PAGE_ID`, `LIBRARY_HUB_PAGE_ID`, `BRIEFING_PAGE_ID` | Notion | Your page ids for `save_reference` / the daily brief. Blank = off. |
+| `*_COLLECTION_ID`, `VIEW_*_ID`, `MISSION_CONTROL_PAGE_ID` | Notion (GTD/PARA) | Your workspace's Areas/Projects/Actions collection ids + saved-view ids the briefs read. The structure is generic; these ids pin it to your workspace. See `.env.example`. |
 | `GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN` | Calendar + Gmail | Recommended durable path: mints a fresh access token every call. Cover both scopes with `scripts/get_google_token.py`. |
 | `GOOGLE_CALENDAR_ID`, `TIMEZONE`, `TIMEZONE_AUTO` | Calendar | `primary`; `TIMEZONE` defaults to `UTC` (set your own IANA zone); `TIMEZONE_AUTO=true` follows your current calendar timezone when travelling. |
 | `MS_CLIENT_ID`, `MS_TODO_LIST_ID`, `MS_TENANT` | In-tray | `consumers` for personal MS accounts. |

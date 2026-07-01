@@ -60,7 +60,8 @@ def patch(routes=None, raise_exc=None):
 
 # Settings with the laptop agent configured (read tests need this); and without.
 st_agent = Settings(whatsapp_agent_url="http://laptop.ts.net:8765", whatsapp_agent_secret="sek")
-st_plain = Settings()
+# A configured default country code (no longer hardcoded — supplied via env).
+st_plain = Settings(whatsapp_default_country_code="44")
 
 
 # === draft: pure wa.me link, deterministic, never sends ===
@@ -69,9 +70,13 @@ check("draft builds wa.me link", d["link"] == "https://wa.me/447700900000?text=h
 check("draft strips to digits", d["number"] == "447700900000")
 check("draft note says the user sends it themselves", "send" in d["note"].lower() and "yourself" in d["note"].lower())
 
-# a bare local number gets the default country code (44)
+# a bare local number gets the configured country code (44)
 d2 = whatsapp.draft(st_plain, to="07700900000", body="yo")
 check("draft local number -> E.164 with cc", d2["number"] == "447700900000")
+
+# with NO country code configured, a bare local number is left as-is (not corrupted)
+d2b = whatsapp.draft(Settings(), to="07700900000", body="yo")
+check("draft local number, no cc -> unchanged", d2b["number"] == "07700900000")
 
 # the body is url-encoded into the link
 d3 = whatsapp.draft(st_plain, to="447700900000", body="see you @ 5pm?")

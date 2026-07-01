@@ -151,15 +151,18 @@ def find(settings: Settings, *, query: str, limit: int = 20, **_ignored) -> dict
 def _normalise_number(raw: str, default_cc: str) -> str:
     """Best-effort E.164 digits (no '+') for a wa.me link.
 
-    Strips spaces/dashes/brackets; drops a leading '+' or '00'; a bare local number
-    (leading 0) gets the default country code. Returns digits only ('' if none)."""
+    Strips spaces/dashes/brackets; drops a leading '+' or '00'. A bare local number
+    (leading 0) is internationalised with WHATSAPP_DEFAULT_COUNTRY_CODE when that is
+    set; if no country code is configured the number is left as-is (the user should
+    enter a full international number). International numbers work either way.
+    Returns digits only ('' if none)."""
     s = "".join(ch for ch in (raw or "") if ch.isdigit() or ch == "+")
     if s.startswith("+"):
         return s[1:]
     if s.startswith("00"):
         return s[2:]
     cc = "".join(ch for ch in (default_cc or "") if ch.isdigit())
-    if s.startswith("0"):
+    if s.startswith("0") and cc:
         return cc + s[1:]
     return s
 
