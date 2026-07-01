@@ -295,15 +295,38 @@ def _transparency(availability: str | None) -> str | None:
     return None
 
 
+def _ensure_offset(value: str | None, tz_name: str) -> str | None:
+    """Attach a UTC offset to a naive ISO8601 datetime so Google will accept it.
+
+    Google's Calendar API requires an explicit offset on ``timeMin``/``timeMax``
+    and on event ``dateTime`` values; a naive "floating" time (e.g.
+    ``2026-07-02T14:00:00``) is rejected with HTTP 400 — the ``timeZone`` param
+    does *not* supply the offset for those bounds. This lets Alistair pass plain
+    local times: if ``value`` carries no offset, the offset for ``tz_name`` at
+    that local instant (DST-correct) is appended. Values that already have an
+    offset (or a trailing ``Z``), and anything unparseable, are returned
+    unchanged so an explicit caller input is never mangled.
+    """
+    if not value:
+        return value
+    try:
+        dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if dt.tzinfo is not None:
+        return value
+    return dt.replace(tzinfo=_zoneinfo(tz_name)).isoformat()
+
+
 def _time_field(value: str, all_day: bool, time_zone: str) -> dict:
     """Build a Calendar start/end object from an ISO8601 string.
 
     For all-day events emit ``{date}`` (date portion only); otherwise emit
-    ``{dateTime, timeZone}``.
+    ``{dateTime, timeZone}`` with a normalized, offset-bearing ``dateTime``.
     """
     if all_day:
         return {"date": value[:10]}
-    return {"dateTime": value, "timeZone": time_zone}
+    return {"dateTime": _ensure_offset(value, time_zone), "timeZone": time_zone}
 
 
 def _compact_event(ev: dict) -> dict:
@@ -362,9 +385,9 @@ def list_events(
         "timeZone": tz,
     }
     if start_time:
-        params["timeMin"] = start_time
+        params["timeMin"] = _ensure_offset(start_time, tz)
     if end_time:
-        params["timeMax"] = end_time
+        params["timeMax"] = _ensure_offset(end_time, tz)
     if full_text:
         params["q"] = full_text
     if page_token:
@@ -748,6 +771,12 @@ def suggest_time(
             f"Unknown timezone '{tz_name}'. Install tzdata or pass a valid IANA timeZone.",
             status_code=400,
         )
+
+    # Normalize the search window up front: a naive bound would both be rejected
+    # by the freeBusy API and make the astimezone() calls below assume the host's
+    # local zone instead of the user's.
+    start_time = _ensure_offset(start_time, tz_name)
+    end_time = _ensure_offset(end_time, tz_name)
 
     prefs = preferences or {}
     start_hour = _parse_hour(prefs.get("startHour"), dt_time(9, 0))
