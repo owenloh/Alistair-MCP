@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     view_projects_someday_id: str = ""   # VIEW_PROJECTS_SOMEDAY_ID
     view_projects_all_id: str = ""       # VIEW_PROJECTS_ALL_ID
     view_actions_next_id: str = ""       # VIEW_ACTIONS_NEXT_ID
+    view_actions_inprogress_id: str = "" # VIEW_ACTIONS_INPROGRESS_ID (optional — the
+                                         # In-progress lane; the MCP filters by status,
+                                         # so this is only for your own Notion sidebar)
     view_actions_np_next_id: str = ""    # VIEW_ACTIONS_NP_NEXT_ID
     view_actions_waiting_id: str = ""    # VIEW_ACTIONS_WAITING_ID
     view_actions_someday_id: str = ""    # VIEW_ACTIONS_SOMEDAY_ID

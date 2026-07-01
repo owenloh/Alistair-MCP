@@ -244,10 +244,10 @@ def get_skill(slug: str) -> dict:
 @mcp.tool(
     name="daily_brief",
     description=(
-        "Compose {user}'s daily brief in one call: Notion structure (active projects, Next/Someday "
-        "actions), today's calendar, and the in-tray. Graceful — any failing source is reported "
-        "under 'unavailable'. Read-only; it PROPOSES, it never files. Then deliver per the "
-        "daily-brief skill."
+        "Compose {user}'s daily brief in one call: Notion structure (active projects, "
+        "In-progress/Next/Someday actions — In progress is the backbone of the day), today's "
+        "calendar, and the in-tray. Graceful — any failing source is reported under 'unavailable'. "
+        "Read-only; it PROPOSES, it never files. Then deliver per the daily-brief skill."
     ),
 )
 def daily_brief() -> dict:
@@ -288,7 +288,7 @@ def save_reference(title: str, body: str | None = None, link: str | None = None,
     description=(
         "Create ONE Next action in {user}'s Notion Actions database when they EXPLICITLY ask to add a "
         "task/action (not during the daily brief, which only proposes). status defaults to 'Next' "
-        "(Next/Waiting/Someday/Done); due is an optional ISO date. project optionally files it "
+        "(Next/In progress/Waiting/Someday/Done); due is an optional ISO date. project optionally files it "
         "under one or more Projects (a Notion page id/URL or a list) via the 'Project' relation, so "
         "it lands under the right Project and Area in PARA — pass it whenever you know the parent "
         "project. Capture-only 'remind me to…' belongs in the in-tray instead."

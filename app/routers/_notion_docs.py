@@ -249,10 +249,11 @@ QUERY_DATABASE = (
 
 QUERY_BRIEF = (
     "Filtered read of the PARA Projects + Actions databases for the daily brief. "
-    "Returns ACTIVE_PROJECTS, NEXT_ACTIONS, SOMEDAY_PROJECTS, SOMEDAY_ACTIONS using "
-    "real Notion property filters (Next = Action Status Next, project "
-    "Active/Complete or project-less; Someday = Action Status Someday; completed = "
-    "Action Status Done, which these filters exclude by definition). "
+    "Returns ACTIVE_PROJECTS, IN_PROGRESS_ACTIONS, NEXT_ACTIONS, SOMEDAY_PROJECTS, "
+    "SOMEDAY_ACTIONS using real Notion property filters (In progress = Action Status "
+    "In progress — the backbone of the brief's Now section; Next = Action Status Next, "
+    "project Active/Complete or project-less; Someday = Action Status Someday; completed "
+    "= Action Status Done, which these filters exclude by definition). "
     "This is the authoritative read the notion-master / daily-brief skills rely on. "
     "No body required."
 )

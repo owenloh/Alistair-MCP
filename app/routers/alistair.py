@@ -30,9 +30,10 @@ _LOAD_CONTEXT_DOC = (
 )
 _DAILY_BRIEF_DOC = (
     "Gather everything the daily brief needs in one call: {user}'s Notion structure (active "
-    "projects, Next actions, Someday items), today's Google Calendar, and the in-tray count. "
-    "Any unconfigured or failing source is reported under 'unavailable' instead of failing the "
-    "call. Read-only — it proposes, it never files. Then deliver per the daily-brief skill."
+    "projects, In-progress actions — the backbone of the day, Next actions, Someday items), "
+    "today's Google Calendar, and the in-tray count. Any unconfigured or failing source is "
+    "reported under 'unavailable' instead of failing the call. Read-only — it proposes, it never "
+    "files. Then deliver per the daily-brief skill."
 )
 
 
@@ -58,7 +59,7 @@ _SAVE_REFERENCE_DOC = (
 _ADD_ACTION_DOC = (
     "Create ONE Next action in {user}'s Notion Actions database when they EXPLICITLY ask to add a "
     "task/action (not during the daily brief, which only proposes). Non-destructive create. "
-    "name is the action title; status defaults to 'Next' (Next/Waiting/Someday/Done); due is an "
+    "name is the action title; status defaults to 'Next' (Next/In progress/Waiting/Someday/Done); due is an "
     "optional ISO date. project optionally files it under one or more Projects (a Notion page "
     "id/URL or a list) via the 'Project' relation, so it lands under the right Project and Area "
     "in PARA — pass it whenever you know the parent project. Capture-only intent ('remind me "

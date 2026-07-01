@@ -42,9 +42,12 @@ ROUTING = [
             "for placement; the safe-write protocol in notion-master governs. Never write the Library hub."},
     {"says": ["in-tray", "capture", "remind me to", "quick task"],
      "use": "intray (action=list|add|done|delete) — the ONE capture surface. Not memory, not a Notion action."},
-    {"says": ["my Next actions", "Someday items", "Active projects", "any filtered Notion list"],
+    {"says": ["my Next actions", "what am I working on", "in-progress actions", "Someday items",
+              "Active projects", "any filtered Notion list"],
      "use": "notion_query_database with an explicit filter (or daily_brief / load_context, which return "
-            "them pre-filtered). Saved view:// URLs are not API-readable."},
+            "them pre-filtered). Two action lanes: IN PROGRESS = what {user} is actively working now "
+            "(the core of the day, the backbone of the brief's Now section); NEXT = the queue to promote "
+            "from once In-progress items close. Saved view:// URLs are not API-readable."},
     {"says": ["read a Notion page", "open <page>", "find in Notion"],
      "use": "notion_search to locate, then notion_fetch by id/URL."},
     {"says": ["any Notion write or edit"],
@@ -132,8 +135,10 @@ WORKFLOW = {
                "(add_action with project=<project id>, or notion_create_pages) linked to the right "
                "Project, then clear it from the in-tray (intray done/delete). The daily brief only "
                "PROPOSES this triage; it never auto-files.",
-    "organise": "PARA lives in Notion: Areas of Focus (Life/Career) -> Projects -> Actions (status "
-                "Next/Waiting/Someday/Done). Library = reference home; the References Tray "
+    "organise": "PARA lives in Notion: Areas of Focus (Life/Career) -> Projects -> Actions (Action "
+                "Status Next/In progress/Waiting/Someday/Done; Dropped items are deleted, not tagged). "
+                "{user} works two lanes: In progress = what's actively in flight (finish these first), "
+                "Next = the queue promoted into In progress as those close. Library = reference home; the References Tray "
                 "('Unorganised References') is the inbox for unfiled references. An Action links to its "
                 "Project via the 'Project' relation; a Project links to its Area.",
     "boundary": "Keep the three stores distinct. IN-TRAY (Microsoft To Do) = transient inbox you process "
@@ -260,8 +265,8 @@ def load_context(settings: Settings) -> dict:
 def daily_brief(settings: Settings) -> dict:
     """Compose the three read sources for the brief in one call (graceful degrade).
 
-    Notion structure (active projects + next/someday actions) + today's calendar +
-    the in-tray. Any unconfigured/failed source is reported in `unavailable` rather
+    Notion structure (active projects + in-progress/next/someday actions) + today's
+    calendar + the in-tray. Any unconfigured/failed source is reported in `unavailable` rather
     than failing the whole call, so the brief still assembles from what works.
     """
     # Imported lazily to keep this module's import graph light and avoid cycles.
