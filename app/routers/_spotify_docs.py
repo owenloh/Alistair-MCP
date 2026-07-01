@@ -8,14 +8,14 @@ session; playback control needs an active Spotify Connect device).
 
 # --- browse (read-only; work without an active device) ---
 LIST_PLAYLISTS = (
-    "List {owner}'s Spotify playlists (his library). Read-only. Returns each playlist's "
+    "List {user}'s Spotify playlists (their library). Read-only. Returns each playlist's "
     "name, uri, owner and track count — use a returned uri with spotify_playlist_tracks "
     "to see its songs, or as the 'playlist' context for spotify_play."
 )
 
 PLAYLIST_TRACKS = (
     "List the tracks in a Spotify playlist (pass its uri/URL/id; works for any playlist "
-    "{owner} can see). Read-only. Returns each track's name, artists, album and track uri — "
+    "{user} can see). Read-only. Returns each track's name, artists, album and track uri — "
     "pass a track uri to spotify_play to play it, with this playlist as the context."
 )
 
@@ -28,7 +28,7 @@ SEARCH = (
 # --- devices ---
 DEVICES = (
     "Show the Spotify Connect devices available to play on (phone, desktop, web player, "
-    "speakers) and which one is currently active. Read-only. Use this to let {owner} choose "
+    "speakers) and which one is currently active. Read-only. Use this to let {user} choose "
     "where to play, then pass a device id or name to spotify_transfer / spotify_play. If "
     "the list is empty, Spotify isn't open on any device yet."
 )

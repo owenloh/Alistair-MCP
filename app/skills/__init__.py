@@ -29,10 +29,10 @@ def load_skill(slug: str) -> dict | None:
 
 
 def serve_skill(slug: str, settings) -> dict | None:
-    """load_skill, then substitute the {owner}/{...id} placeholders from settings.
+    """load_skill, then substitute the {user}/{...id} placeholders from settings.
 
     The raw JSON on disk carries neutral placeholders (nothing personal); this
-    resolves them to the operator's own name and Notion ids at serve time.
+    resolves them to the user's own name and Notion ids at serve time.
     """
     from ..personalize import personalize
     data = load_skill(slug)

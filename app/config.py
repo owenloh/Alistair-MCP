@@ -2,7 +2,7 @@
 environment variable, never hardcoded (so this is safe to publish).
 
 Non-secret behavioural defaults are provided (timezone, API versions, token decay).
-Secrets default to None and personal identifiers (the owner's name, Notion database
+Secrets default to None and personal identifiers (the user's name, Notion database
 and page ids) default to empty; the relevant endpoint returns a clear 503 when a
 required one is missing, so the app still boots (and the skill endpoints still work)
 even when connector config is absent. Set your own values in .env / the host's vars.
@@ -24,11 +24,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ---- Owner / personalisation ----
+    # ---- User / personalisation ----
     # The person this assistant works for. Every user-facing string uses the neutral
-    # placeholder "{owner}", substituted with this at the model/HTTP boundary, so the
-    # code ships with NO hardcoded personal name. Set OWNER_NAME in your .env.
-    owner_name: str = "the operator"
+    # placeholder "{user}", substituted with this at the model/HTTP boundary, so the
+    # code ships with NO hardcoded personal name. Set USER_NAME in your .env; blank
+    # falls back to the generic "the user".
+    user_name: str = "the user"
 
     # ---- Service ----
     railway_env: str = "development"
@@ -60,9 +61,11 @@ class Settings(BaseSettings):
     # ---- Google Calendar ----
     google_calendar_token: str | None = None
     google_calendar_id: str = "primary"
-    # Accept the bundle's TIMEZONE name (and CALENDAR_TIMEZONE as an alias).
+    # Home / fallback timezone. Defaults to UTC so no location is baked into the
+    # source; set TIMEZONE (or CALENDAR_TIMEZONE) to your own IANA zone. With
+    # timezone_auto on, the live Google Calendar zone overrides this per call.
     calendar_timezone: str = Field(
-        default="Europe/London",
+        default="UTC",
         validation_alias=AliasChoices("TIMEZONE", "CALENDAR_TIMEZONE"),
     )
     # Auto-detect the current Google Calendar timezone per call (follows travel).
@@ -98,10 +101,10 @@ class Settings(BaseSettings):
     spotify_password: str | None = None  # optional; only for password login + a solver
 
     # ---- WhatsApp (read via a laptop agent + draft via wa.me links; NEVER sends) ----
-    # Reading proxies to a small Baileys agent on the owner's laptop (its own linked
+    # Reading proxies to a small Baileys agent on the user's laptop (its own linked
     # device), reachable over Tailscale; the MCP stores nothing and only reads when the
     # laptop is online. Drafting needs none of this — it builds a wa.me deep link the
-    # owner sends themselves.
+    # user sends themselves.
     whatsapp_agent_url: str | None = None       # base URL of the laptop read-agent
     whatsapp_agent_secret: str | None = None    # shared bearer secret for that agent
     whatsapp_default_country_code: str = "44"   # normalise bare local numbers to E.164

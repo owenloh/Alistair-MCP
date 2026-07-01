@@ -20,7 +20,7 @@ def fresh_settings(**kw):
 # Ids + owner name come from settings (env) — nothing personal is hardcoded, so the
 # test supplies its own sample values and asserts they flow through + personalise.
 s = fresh_settings(
-    owner_name="Ada",
+    user_name="Ada",
     references_tray_page_id="tray-abc",
     briefing_page_id="brief-def",
     library_hub_page_id="hub-ghi",

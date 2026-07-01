@@ -35,15 +35,15 @@ from .skills import list_slugs, load_skill, serve_skill
 SERVER_NAME = "alistair_assistant"  # snake_case: Gemini rejects '-' in server names
 
 INSTRUCTIONS = (
-    "You are Alistair, {owner}'s operations assistant (direct, concise, brutally honest, no "
+    "You are Alistair, {user}'s operations assistant (direct, concise, brutally honest, no "
     "em dashes). This connector is the SAME Alistair across every client it's connected to "
     "(claude.ai, voice, Gemini, ChatGPT) — its tools, not this client's own features, are "
     "the shared brain. On first use this session: call load_context (persona + voice + "
     "routing + GTD/PARA workflow + ID registry + safety + skill index) and get_memory. "
     "MEMORY: this connector's store is the ONE shared source of truth for what you know "
-    "about {owner} — do NOT rely on this client's own memory. get_memory loads the consolidated "
+    "about {user} — do NOT rely on this client's own memory. get_memory loads the consolidated "
     "block; use search_memory to recall anything older/specific that isn't in it. For ANY factual "
-    "recall about {owner} ('tell me about myself', 'what do you know about me', who/what/when about him), "
+    "recall about {user} ('tell me about myself', 'what do you know about me', who/what/when about them), "
     "retrieve from Alistair (get_memory / search_memory) and answer from THIS store — treat it as "
     "canonical over any local/built-in memory, which may be stale. Save "
     "durable facts/preferences/open-loops with save_memory the moment they surface (read or "
@@ -90,7 +90,7 @@ if OAUTH_ENABLED:
     )
 
 # Placeholder -> operator value substitution. Every user-facing string in this file
-# uses neutral placeholders ({owner}, {*_id}); resolve them once from settings so the
+# uses neutral placeholders ({user}, {*_id}); resolve them once from settings so the
 # source stays free of anyone's personal name/ids.
 _TOKENS = token_map(get_settings())
 
@@ -108,7 +108,7 @@ mcp = FastMCP(
 )
 
 # Substitute the placeholders in every tool `description` at registration time, so
-# the model never sees a raw {owner}. Wrapping the public decorator (not FastMCP
+# the model never sees a raw {user}. Wrapping the public decorator (not FastMCP
 # internals) keeps this robust across mcp versions.
 _orig_tool = mcp.tool
 
@@ -138,10 +138,10 @@ def _run(fn):
     name="load_context",
     description=(
         "Become Alistair — CALL THIS FIRST at the start of every session. Returns who "
-        "Alistair is (persona + brutally-honest voice), how to route what {owner} says to the "
+        "Alistair is (persona + brutally-honest voice), how to route what {user} says to the "
         "right tool, the stable Notion/PARA ID registry, the non-negotiable safety rules, "
         "the skill index (fetch full rules with get_skill), and the live memory block of "
-        "what you already know about {owner}. Read-only."
+        "what you already know about {user}. Read-only."
     ),
 )
 def load_context() -> dict:
@@ -151,7 +151,7 @@ def load_context() -> dict:
 @mcp.tool(
     name="get_memory",
     description=(
-        "Load what Alistair remembers about {owner}: the CONSOLIDATED block (core facts always "
+        "Load what Alistair remembers about {user}: the CONSOLIDATED block (core facts always "
         "included, the rest ranked by recency x importance, token-budgeted). Call at session "
         "start alongside load_context. This is a summary, NOT everything — to recall an older "
         "or specific fact that isn't here, use search_memory. Read-only."
@@ -201,7 +201,7 @@ def save_memory(content: str, type: str = "fact", relevance: int = 3,
     description=(
         "Get everything needed to CONSOLIDATE Alistair's memory in one call: the full current store "
         "(every entry) plus the step-by-step maintenance procedure. Call this to tidy memory — at the "
-        "END of a conversation/session (e.g. a voice agent's wrap-up), during a brief, or when {owner} says "
+        "END of a conversation/session (e.g. a voice agent's wrap-up), during a brief, or when {user} says "
         "'tidy your memory'. Then act on the returned procedure with save_memory (merge near-duplicates "
         "into one canonical entry, retract stale/contradictory/transient entries, downgrade over-pinned "
         "ones). The append-only log is reversible. Read-only itself — it only reads + returns the rules."
@@ -215,7 +215,7 @@ def memory_maintenance() -> dict:
         return {
             "procedure": proc.get("instructions", ""),
             "guardrails": _apply(
-                "Never invent facts. Ask {owner} before deleting personal data you're unsure "
+                "Never invent facts. Ask {user} before deleting personal data you're unsure "
                 "about. Re-assert identity/safety (relevance 5) facts before retracting any "
                 "near-duplicate. Report what you merged/retracted.",
                 _TOKENS,
@@ -244,7 +244,7 @@ def get_skill(slug: str) -> dict:
 @mcp.tool(
     name="daily_brief",
     description=(
-        "Compose {owner}'s daily brief in one call: Notion structure (active projects, Next/Someday "
+        "Compose {user}'s daily brief in one call: Notion structure (active projects, Next/Someday "
         "actions), today's calendar, and the in-tray. Graceful — any failing source is reported "
         "under 'unavailable'. Read-only; it PROPOSES, it never files. Then deliver per the "
         "daily-brief skill."
@@ -257,7 +257,7 @@ def daily_brief() -> dict:
 @mcp.tool(
     name="project_context",
     description=(
-        "Pull a project's live GitHub state in one call when {owner} asks 'what's happening with "
+        "Pull a project's live GitHub state in one call when {user} asks 'what's happening with "
         "<project>' or 'any open PRs': repo metadata + recent commits + open PRs + open issues + "
         "a README excerpt for owner/repo. The GitHub side of the daily brief. Read-only; summarise "
         "what moved / what's waiting in Alistair's voice."
@@ -270,7 +270,7 @@ def project_context(owner: str, repo: str, commits: int = 5) -> dict:
 @mcp.tool(
     name="save_reference",
     description=(
-        "Append a reference to {owner}'s Notion References Tray ('add to tray', 'save this reference'). "
+        "Append a reference to {user}'s Notion References Tray ('add to tray', 'save this reference'). "
         "INSERT-ONLY and safe: reads the tray, finds the last entry above the END-OF-TRAY boundary, "
         "inserts one spacer + your entry there (NEVER overwrites the page), re-fetches and verifies. "
         "Aborts rather than guess if the structure is missing. dry_run=true previews placement "
@@ -286,7 +286,7 @@ def save_reference(title: str, body: str | None = None, link: str | None = None,
 @mcp.tool(
     name="add_action",
     description=(
-        "Create ONE Next action in {owner}'s Notion Actions database when he EXPLICITLY asks to add a "
+        "Create ONE Next action in {user}'s Notion Actions database when they EXPLICITLY ask to add a "
         "task/action (not during the daily brief, which only proposes). status defaults to 'Next' "
         "(Next/Waiting/Someday/Done); due is an optional ISO date. project optionally files it "
         "under one or more Projects (a Notion page id/URL or a list) via the 'Project' relation, so "
@@ -303,9 +303,9 @@ def add_action(name: str, status: str = "Next", due: str | None = None,
 @mcp.tool(
     name="whereami",
     description=(
-        "{owner}'s current date, time, timezone and inferred location — call this if you are unsure "
-        "'when' or 'where' he is. Read-only. Timezone is his LIVE Google Calendar setting "
-        "(auto-detected, follows travel); location is inferred from that timezone, not GPS. If he "
+        "{user}'s current date, time, timezone and inferred location — call this if you are unsure "
+        "'when' or 'where' they are. Read-only. Timezone is their LIVE Google Calendar setting "
+        "(auto-detected, follows travel); location is inferred from that timezone, not GPS. If they "
         "pinned a precise home/base via save_memory, prefer that."
     ),
 )
@@ -316,7 +316,7 @@ def whereami() -> dict:
 # ===================== Notion (read + safe write) =====================
 @mcp.tool(
     name="notion_search",
-    description="Search {owner}'s Notion workspace for pages/databases by text. Read-only. Returns matches "
+    description="Search {user}'s Notion workspace for pages/databases by text. Read-only. Returns matches "
     "with ids + titles; follow up with notion_fetch to read one.",
 )
 def notion_search(query: str, page_size: int = 10) -> dict:
@@ -394,7 +394,7 @@ def notion_create_pages(pages: list[dict], parent: dict | None = None) -> dict:
     name="notion_move_pages",
     description="Move one or more Notion pages/databases under a new parent (file them in PARA). "
     "page_or_database_ids is a list of ids; new_parent is e.g. {\"page_id\": \"...\"} or "
-    "{\"database_id\": \"...\"}. Notion is sacred — confirm the destination with {owner} first.",
+    "{\"database_id\": \"...\"}. Notion is sacred — confirm the destination with {user} first.",
 )
 def notion_move_pages(page_or_database_ids: list[str], new_parent: dict) -> dict:
     from .routers.notion import MovePagesRequest, move_pages
@@ -424,7 +424,7 @@ def notion_get_comments(page_id: str, include_resolved: bool = False) -> dict:
 
 @mcp.tool(
     name="notion_create_comment",
-    description="Add a comment to a Notion page (markdown). Use when {owner} wants to leave a note or "
+    description="Add a comment to a Notion page (markdown). Use when {user} wants to leave a note or "
     "question on a page without editing its content.",
 )
 def notion_create_comment(page_id: str, markdown: str) -> dict:
@@ -555,7 +555,7 @@ def _res_skill(slug: str) -> str:
 # ===================== Calendar =====================
 @mcp.tool(
     name="calendar_today",
-    description="{owner}'s events for today, in his current timezone. Read-only. The fast path for "
+    description="{user}'s events for today, in their current timezone. Read-only. The fast path for "
     "'what's on today' (also part of daily_brief).",
 )
 def calendar_today(time_zone: str | None = None) -> dict:
@@ -564,7 +564,7 @@ def calendar_today(time_zone: str | None = None) -> dict:
 
 @mcp.tool(
     name="calendar_list_events",
-    description="List {owner}'s calendar events in a time window (ISO startTime/endTime), optional text filter. "
+    description="List {user}'s calendar events in a time window (ISO startTime/endTime), optional text filter. "
     "Read-only.",
 )
 def calendar_list_events(startTime: str | None = None, endTime: str | None = None,
@@ -578,8 +578,8 @@ def calendar_list_events(startTime: str | None = None, endTime: str | None = Non
 
 @mcp.tool(
     name="calendar_create_event",
-    description="Create a calendar event for {owner} (ISO startTime/endTime, or allDay=true). Optional "
-    "location, description, attendees, addGoogleMeetUrl. Confirm details with {owner} before creating.",
+    description="Create a calendar event for {user} (ISO startTime/endTime, or allDay=true). Optional "
+    "location, description, attendees, addGoogleMeetUrl. Confirm details with {user} before creating.",
 )
 def calendar_create_event(summary: str, startTime: str, endTime: str, allDay: bool = False,
                           timeZone: str | None = None, location: str | None = None,
@@ -618,7 +618,7 @@ def calendar_get_event(eventId: str, calendarId: str | None = None) -> dict:
 @mcp.tool(
     name="calendar_update_event",
     description="Edit an EXISTING calendar event (by eventId): change summary/startTime/endTime/location/"
-    "description, or set allDay. Only the fields you pass change. Confirm the change with {owner} first.",
+    "description, or set allDay. Only the fields you pass change. Confirm the change with {user} first.",
 )
 def calendar_update_event(eventId: str, summary: str | None = None, startTime: str | None = None,
                           endTime: str | None = None, allDay: bool = False, timeZone: str | None = None,
@@ -632,7 +632,7 @@ def calendar_update_event(eventId: str, summary: str | None = None, startTime: s
 
 @mcp.tool(
     name="calendar_delete_event",
-    description="Delete a calendar event by id. SENSITIVE and hard to undo — confirm with {owner} before "
+    description="Delete a calendar event by id. SENSITIVE and hard to undo — confirm with {user} before "
     "calling; never delete silently.",
 )
 def calendar_delete_event(eventId: str, calendarId: str | None = None) -> dict:
@@ -642,8 +642,8 @@ def calendar_delete_event(eventId: str, calendarId: str | None = None) -> dict:
 
 @mcp.tool(
     name="calendar_respond_to_event",
-    description="RSVP to an event {owner} was invited to: responseStatus = accepted | declined | tentative. "
-    "Optional responseComment. (Only works on events where {owner} is an attendee, not ones he organizes.)",
+    description="RSVP to an event {user} was invited to: responseStatus = accepted | declined | tentative. "
+    "Optional responseComment. (Only works on events where {user} is an attendee, not ones they organize.)",
 )
 def calendar_respond_to_event(eventId: str, responseStatus: str, responseComment: str | None = None) -> dict:
     from .routers.calendar import RespondToEventRequest, respond_to_event
@@ -654,7 +654,7 @@ def calendar_respond_to_event(eventId: str, responseStatus: str, responseComment
 # ===================== In-tray (the one capture surface) =====================
 @mcp.tool(
     name="intray",
-    description="{owner}'s Microsoft To Do in-tray — the ONE capture surface for 'remind me to…', 'capture "
+    description="{user}'s Microsoft To Do in-tray — the ONE capture surface for 'remind me to…', 'capture "
     "this', quick tasks. action=list|add|done|delete (add needs title; done/delete need task_id from a "
     "prior list).",
 )
@@ -689,7 +689,7 @@ def github_whoami() -> dict:
 
 @mcp.tool(
     name="github_list_my_repos",
-    description="List {owner}'s GitHub repos — every repository the token can reach, public AND "
+    description="List {user}'s GitHub repos — every repository the token can reach, public AND "
     "private, most-recently-active first. Read-only. Use this to discover owner/repo before the "
     "per-repo tools (no need to know the name up front). visibility is all|public|private; "
     "affiliation optionally filters owner|collaborator|organization_member.",
@@ -748,7 +748,7 @@ def github_recent_commits(owner: str, repo: str, branch: str | None = None, limi
     description=(
         "Merge a GitHub pull request. SENSITIVE and near-irreversible — NEVER merge silently: with "
         "confirm=false (default) this ONLY returns a preview of what would be merged and changes "
-        "nothing. Re-call with confirm=true after {owner} confirms. method is merge|squash|rebase."
+        "nothing. Re-call with confirm=true after {user} confirms. method is merge|squash|rebase."
     ),
 )
 def github_merge_pr(owner: str, repo: str, number: int, confirm: bool = False, method: str = "merge") -> dict:
@@ -764,7 +764,7 @@ def github_merge_pr(owner: str, repo: str, number: int, confirm: bool = False, m
 @mcp.tool(
     name="gmail_search",
     description=(
-        "Search {owner}'s Gmail with Gmail query syntax (e.g. 'from:bank newer_than:7d', "
+        "Search {user}'s Gmail with Gmail query syntax (e.g. 'from:bank newer_than:7d', "
         "'is:unread label:work', 'subject:invoice has:attachment'). Read-only. Returns "
         "message stubs (from, subject, snippet, date, thread_id); follow up with "
         "gmail_read_thread to read one. Keep max_results small."
@@ -778,7 +778,7 @@ def gmail_search(query: str, max_results: int = 20) -> dict:
     name="gmail_read_thread",
     description=(
         "Read one Gmail thread by thread_id — every message rendered to clean text "
-        "(headers + body). Read-only. Summarise it for {owner}; don't dump the raw text, and "
+        "(headers + body). Read-only. Summarise it for {user}; don't dump the raw text, and "
         "don't repeat secrets/2FA codes you see."
     ),
 )
@@ -788,7 +788,7 @@ def gmail_read_thread(thread_id: str) -> dict:
 
 @mcp.tool(
     name="gmail_list_drafts",
-    description="List {owner}'s existing Gmail drafts (draft_id, to, subject, snippet). Read-only.",
+    description="List {user}'s existing Gmail drafts (draft_id, to, subject, snippet). Read-only.",
 )
 def gmail_list_drafts(max_results: int = 20) -> dict:
     return _run(lambda: gmail_service.list_drafts(get_settings(), max_results=max_results))
@@ -797,10 +797,10 @@ def gmail_list_drafts(max_results: int = 20) -> dict:
 @mcp.tool(
     name="gmail_create_draft",
     description=(
-        "Draft an email for {owner} — creates a DRAFT only, it NEVER sends. Provide to, subject, "
+        "Draft an email for {user} — creates a DRAFT only, it NEVER sends. Provide to, subject, "
         "body (optional cc). For a reply, pass thread_id and in_reply_to (the original "
-        "message's Message-ID) so it threads. Write in {owner}'s voice, keep it tight, then show "
-        "him the draft — sending stays his action in Gmail."
+        "message's Message-ID) so it threads. Write in {user}'s voice, keep it tight, then show "
+        "them the draft — sending stays their action in Gmail."
     ),
 )
 def gmail_create_draft(to: str, subject: str, body: str, cc: str | None = None,
@@ -815,8 +815,8 @@ def gmail_create_draft(to: str, subject: str, body: str, cc: str | None = None,
 @mcp.tool(
     name="whatsapp_chats",
     description=(
-        "List {owner}'s recent WhatsApp chats (chat id, name, last-message time, unread). "
-        "Read-only, and ONLINE-ONLY: it reads from the WhatsApp agent on {owner}'s laptop, so it "
+        "List {user}'s recent WhatsApp chats (chat id, name, last-message time, unread). "
+        "Read-only, and ONLINE-ONLY: it reads from the WhatsApp agent on {user}'s laptop, so it "
         "only works while that laptop is on — if it's offline, say so plainly (don't "
         "fabricate). Use a returned chat id with whatsapp_read."
     ),
@@ -829,7 +829,7 @@ def whatsapp_chats(limit: int = 20) -> dict:
     name="whatsapp_read",
     description=(
         "Read recent messages in one WhatsApp chat by its chat id (from whatsapp_chats). "
-        "Read-only, online-only (via {owner}'s laptop agent). Summarise for {owner}; it's his "
+        "Read-only, online-only (via {user}'s laptop agent). Summarise for {user}; it's their "
         "private messaging — never repeat secrets, OTP/2FA codes or passwords you see."
     ),
 )
@@ -840,7 +840,7 @@ def whatsapp_read(chat: str, limit: int = 30) -> dict:
 @mcp.tool(
     name="whatsapp_search",
     description=(
-        "Search {owner}'s WhatsApp messages by text. Read-only, online-only (laptop agent). "
+        "Search {user}'s WhatsApp messages by text. Read-only, online-only (laptop agent). "
         "Returns matches with their chat id so you can whatsapp_read the full thread."
     ),
 )
@@ -876,12 +876,12 @@ def whatsapp_find(query: str, limit: int = 20) -> dict:
 @mcp.tool(
     name="whatsapp_draft",
     description=(
-        "Draft a WhatsApp message for {owner} — returns a wa.me link that opens his NORMAL "
-        "WhatsApp with the text pre-filled in the compose box for him to review and SEND "
-        "HIMSELF. It NEVER sends and needs no laptop/session. 'to' = a phone number (any "
+        "Draft a WhatsApp message for {user} — returns a wa.me link that opens their NORMAL "
+        "WhatsApp with the text pre-filled in the compose box for them to review and SEND "
+        "IT THEMSELVES. It NEVER sends and needs no laptop/session. 'to' = a phone number (any "
         "format; a bare local number uses the default country code) or a contact name "
         "(resolved via the laptop agent if it's online); 'body' = the message. 1:1 only. "
-        "Write in {owner}'s voice, keep it tight, then hand him the link."
+        "Write in {user}'s voice, keep it tight, then hand them the link."
     ),
 )
 def whatsapp_draft(to: str, body: str) -> dict:

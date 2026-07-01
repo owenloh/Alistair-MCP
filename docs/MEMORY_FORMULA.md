@@ -1,6 +1,6 @@
 # Alistair Memory — scoring + selection formula (V1)
 
-Source of truth for task #5 (memory layer). Provided by the operator; mirrors the Pipecat
+Source of truth for task #5 (memory layer). Provided by the user; mirrors the Pipecat
 local-memory model (`backend/memory/store.py`). Two parts: **scoring** (rank) +
 **selection** (pin core, fill budget, trim).
 

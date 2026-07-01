@@ -5,14 +5,14 @@ the same hard limit the Gmail connector keeps for mail.
 
 Two halves, by design:
   * READ — ``list_chats`` / ``read_messages`` / ``search`` proxy to a small agent
-    running on the owner's laptop (Baileys, its OWN linked device), reachable over
+    running on the user's laptop (Baileys, its OWN linked device), reachable over
     Tailscale. The MCP stays stateless: it just forwards an authed HTTP GET and
     returns what the agent holds. Nothing is stored in the cloud. If the laptop is
     off, the read tools return a clean "agent offline" (ServiceError 503) — never a
     crash and never a fabrication.
   * DRAFT — ``draft`` builds a ``wa.me/<number>?text=...`` deep link (no session, no
-    network). the owner taps it and his NORMAL WhatsApp opens with the text pre-filled in
-    the compose box for him to review and SEND HIMSELF.
+    network). the user taps it and their NORMAL WhatsApp opens with the text pre-filled in
+    the compose box for them to review and SEND THEMSELVES.
 
 Reading is privacy-first (messages live only on the laptop and flow only when the
 authed read tool is called); drafting needs no session at all.

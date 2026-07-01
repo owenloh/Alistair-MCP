@@ -56,13 +56,13 @@ SHORTCUTS = [
     {"intent": "draft an email / reply (DRAFT only — never sends)",
      "calls": ["GET /api/skill/gmail  (drafting etiquette first)",
                "POST /api/gmail/create-draft {\"to\":\"..\",\"subject\":\"..\",\"body\":\"..\",\"threadId\":\"<for a reply>\"}"],
-     "then": "show {owner} the draft; sending stays his action in Gmail"},
+     "then": "show {user} the draft; sending stays their action in Gmail"},
     {"intent": "project status / what's happening with <project> / open PRs",
      "calls": ["POST /api/alistair/project-context {\"owner\":\"<owner>\",\"repo\":\"<repo>\"}"],
      "then": "summarise what moved / what's waiting in Alistair's voice"},
     {"intent": "merge a pull request (always preview first)",
      "calls": ["POST /api/github/merge-pr {\"owner\":\"..\",\"repo\":\"..\",\"number\":N}  (preview only)",
-               "POST /api/github/merge-pr {\"owner\":\"..\",\"repo\":\"..\",\"number\":N,\"confirm\":true}  (after {owner} confirms)"]},
+               "POST /api/github/merge-pr {\"owner\":\"..\",\"repo\":\"..\",\"number\":N,\"confirm\":true}  (after {user} confirms)"]},
     {"intent": "what's my GitHub account / which repos do I have / find a repo",
      "calls": ["POST /api/github/whoami", "POST /api/github/list-my-repos"],
      "then": "use the returned full_name as owner/repo for the per-repo tools"},
@@ -127,7 +127,7 @@ app.include_router(alistair.router)
 # Skills (description APIs)
 app.include_router(skill.router)
 
-# Personalise the whole REST surface once, from env: substitute the {owner}/{*_id}
+# Personalise the whole REST surface once, from env: substitute the {user}/{*_id}
 # placeholders in every route description (so /docs, /openapi.json and /api/manifest
 # read correctly) and in the intent shortcuts. Nothing personal is baked into source.
 _TOKENS = token_map(get_settings())

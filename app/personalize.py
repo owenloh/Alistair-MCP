@@ -1,7 +1,7 @@
-"""Personalisation: substitute neutral placeholders with the operator's own values.
+"""Personalisation: substitute neutral placeholders with the user's own values.
 
 The source ships with NO hardcoded personal data. User-facing text uses neutral
-placeholder tokens (e.g. ``{owner}`` for the operator's name, ``{references_tray_id}``
+placeholder tokens (e.g. ``{user}`` for the user's name, ``{references_tray_id}``
 for a Notion page id). This module resolves those tokens from settings at the
 model/HTTP boundary, so a fork just sets its own env vars and every persona string,
 tool description and skill body reads correctly — nothing private is baked in.
@@ -14,9 +14,11 @@ from .config import Settings
 
 
 def token_map(settings: Settings) -> dict[str, str]:
-    """Placeholder -> configured value. Missing ids resolve to '' (feature simply off)."""
+    """Placeholder -> configured value. A blank name falls back to the generic "the
+    user"; missing ids resolve to '' (the feature that needs them is simply off)."""
     return {
-        "{owner}": settings.owner_name or "the operator",
+        "{user}": (settings.user_name or "").strip() or "the user",
+        "{timezone}": settings.calendar_timezone or "UTC",
         "{projects_db_id}": settings.projects_db_id or "",
         "{actions_db_id}": settings.actions_db_id or "",
         "{references_tray_id}": settings.references_tray_page_id or "",
