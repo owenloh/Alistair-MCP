@@ -811,6 +811,34 @@ def gmail_create_draft(to: str, subject: str, body: str, cc: str | None = None,
     ))
 
 
+@mcp.tool(
+    name="gmail_update_draft",
+    description=(
+        "Edit an existing Gmail DRAFT by draft_id — replaces draft contents only and NEVER sends. "
+        "Use gmail_list_drafts first if you need the draft_id. Provide the revised to, subject, "
+        "body (optional cc). For a threaded reply, preserve/pass thread_id and in_reply_to. "
+        "After updating, show {user} the revised draft; sending stays their action in Gmail."
+    ),
+)
+def gmail_update_draft(draft_id: str, to: str, subject: str, body: str, cc: str | None = None,
+                       thread_id: str | None = None, in_reply_to: str | None = None) -> dict:
+    return _run(lambda: gmail_service.update_draft(
+        get_settings(), draft_id=draft_id, to=to, subject=subject, body=body, cc=cc,
+        thread_id=thread_id, in_reply_to=in_reply_to,
+    ))
+
+
+@mcp.tool(
+    name="gmail_delete_draft",
+    description=(
+        "Delete a Gmail DRAFT by draft_id. This only removes a draft and cannot touch sent or "
+        "received mail. Use when {user} abandons a draft; never describe this as deleting email."
+    ),
+)
+def gmail_delete_draft(draft_id: str) -> dict:
+    return _run(lambda: gmail_service.delete_draft(get_settings(), draft_id=draft_id))
+
+
 # ===================== WhatsApp (read + draft, NEVER sends) =====================
 @mcp.tool(
     name="whatsapp_chats",
