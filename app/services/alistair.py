@@ -64,7 +64,7 @@ ROUTING = [
             "'before I sleep' -> ~22:30. Confirm in one line, then act. If timing is genuinely unclear or "
             "the item isn't time-bound, send it to the in-tray instead of guessing an event."},
     {"says": ["email", "gmail", "draft a reply", "check my mail"],
-     "use": "gmail_search then gmail_read_thread to read; gmail_create_draft to draft. DRAFTS only — never sends."},
+     "use": "gmail_search then gmail_read_thread to read; gmail_create_draft to draft; gmail_list_drafts, gmail_update_draft, and gmail_delete_draft to manage drafts. DRAFTS only — never sends."},
     {"says": ["whatsapp", "what's new on whatsapp", "any new messages", "check my whatsapp",
               "read my chat with <person>", "what did <person> say on whatsapp",
               "message <person> on whatsapp", "text <person>", "draft a whatsapp"],

@@ -119,6 +119,32 @@ except ServiceError as e:
     check("create-draft empty to -> 422", e.status_code == 422)
 
 
+# === update_draft: PUT only, replaces MIME, returns updated ===
+fx = patch([("PUT", "/drafts/d1", FakeResp(200, {"id": "d1", "message": {"id": "msg2", "threadId": "t1"}}))])
+res = gmail.update_draft(st, draft_id="d1", to="bob@x.com", subject="Updated", body="Revised body", thread_id="t1")
+check("update returns updated=True", res["updated"] is True)
+check("update used PUT verb", fx.calls[-1][0] == "PUT")
+posted = fx.calls[-1][3]
+raw = posted["message"]["raw"]
+decoded = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode("utf-8", "replace")
+check("update MIME has revised subject", "Updated" in decoded)
+check("update MIME has revised body", "Revised body" in decoded)
+check("update preserves threadId", posted["message"]["threadId"] == "t1")
+
+
+# === update_draft requires draft id and recipient ===
+try:
+    gmail.update_draft(st, draft_id="", to="bob@x.com", subject="x", body="y")
+    check("update-draft empty draft_id -> error", False)
+except ServiceError as e:
+    check("update-draft empty draft_id -> 422", e.status_code == 422)
+try:
+    gmail.update_draft(st, draft_id="d1", to="", subject="x", body="y")
+    check("update-draft empty to -> error", False)
+except ServiceError as e:
+    check("update-draft empty to -> 422", e.status_code == 422)
+
+
 # === delete_draft: DELETE only, returns deleted ===
 fx = patch([("DELETE", "/drafts/d1", FakeResp(204))])
 res = gmail.delete_draft(st, draft_id="d1")

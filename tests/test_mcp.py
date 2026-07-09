@@ -46,8 +46,8 @@ names = set(by_name)
 
 # === server identity + tool registration ===
 check("server name is snake_case alistair_assistant", M.mcp.name == "alistair_assistant")
-check("60 tools registered (51 + 9 spotify)",
-      len(tools) == 60)
+check("62 tools registered (53 + 9 spotify)",
+      len(tools) == 62)
 check("tool present: search_memory", "search_memory" in names)
 check("tool present: memory_maintenance", "memory_maintenance" in names)
 for blk in ("notion_list_blocks", "notion_append_blocks", "notion_update_block",
@@ -65,7 +65,8 @@ for core in ("load_context", "get_memory", "save_memory", "get_skill", "daily_br
              "project_context", "save_reference", "add_action", "notion_search", "notion_fetch",
              "notion_update_page", "calendar_today", "intray", "github_merge_pr",
              "github_whoami", "github_list_my_repos",
-             "gmail_search", "gmail_read_thread", "gmail_create_draft", "gmail_list_drafts"):
+             "gmail_search", "gmail_read_thread", "gmail_create_draft", "gmail_list_drafts",
+             "gmail_update_draft", "gmail_delete_draft"):
     check(f"tool present: {core}", core in names)
 
 # === descriptions are persona-loaded + carry the safety hooks ===
@@ -85,6 +86,11 @@ check("github_merge_pr warns confirm-first",
       "confirm=false" in by_name["github_merge_pr"].description and
       "never merge" in by_name["github_merge_pr"].description.lower())
 check("save_reference marked insert-only", "INSERT-ONLY" in by_name["save_reference"].description)
+check("gmail_update_draft is draft-only",
+      "draft" in by_name["gmail_update_draft"].description.lower() and
+      "never sends" in by_name["gmail_update_draft"].description.lower())
+check("gmail_delete_draft cannot touch received mail",
+      "cannot touch sent or received mail" in by_name["gmail_delete_draft"].description.lower())
 
 # === input schemas exist + reflect params ===
 check("save_memory schema has content", "content" in (by_name["save_memory"].inputSchema.get("properties") or {}))
