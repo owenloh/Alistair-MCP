@@ -46,8 +46,8 @@ names = set(by_name)
 
 # === server identity + tool registration ===
 check("server name is snake_case alistair_assistant", M.mcp.name == "alistair_assistant")
-check("62 tools registered (53 + 9 spotify)",
-      len(tools) == 62)
+check("64 tools registered (53 + 9 spotify + 2 media)",
+      len(tools) == 64)
 check("tool present: search_memory", "search_memory" in names)
 check("tool present: memory_maintenance", "memory_maintenance" in names)
 for blk in ("notion_list_blocks", "notion_append_blocks", "notion_update_block",
@@ -59,6 +59,8 @@ for sp in ("spotify_playlists", "spotify_playlist_tracks", "spotify_search", "sp
 for wa in ("whatsapp_chats", "whatsapp_read", "whatsapp_search", "whatsapp_recent",
            "whatsapp_find", "whatsapp_draft"):
     check(f"tool present: {wa}", wa in names)
+for md in ("open_link", "transcribe_video"):
+    check(f"tool present: {md}", md in names)
 check("all tool names snake_case (no hyphens)",
       all(n.replace("_", "a").isalnum() and n == n.lower() and "-" not in n for n in names))
 for core in ("load_context", "get_memory", "save_memory", "get_skill", "daily_brief",
@@ -204,7 +206,7 @@ with TestClient(asgi) as cl:
     check("/mcp wrong key -> 401", rwrong.status_code == 401)
     # REST still flows through the dispatcher to FastAPI
     check("dispatcher passes /health to FastAPI", cl.get("/health").status_code == 200)
-    check("dispatcher passes /api/manifest to FastAPI", cl.get("/api/manifest").json()["counts"]["total"] == 82)
+    check("dispatcher passes /api/manifest to FastAPI", cl.get("/api/manifest").json()["counts"]["total"] == 84)
 os.environ.pop("SERVICE_API_KEY", None); _cfg.get_settings.cache_clear()
 
 # --- results ---

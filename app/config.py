@@ -133,6 +133,15 @@ class Settings(BaseSettings):
     # Blank by default (no country baked in); international numbers work regardless.
     whatsapp_default_country_code: str = ""      # WHATSAPP_DEFAULT_COUNTRY_CODE
 
+    # ---- Media (open links + transcribe YouTube/Instagram) ----
+    # YouTube transcription works with no config (it reads the video's own caption
+    # track). Instagram / audio / caption-less YouTube have no free caption track, so
+    # they proxy to an OPTIONAL external speech-to-text agent (same laptop-agent pattern
+    # as WhatsApp reads): POST {url, lang} -> {text, segments?, title?, language?}. Blank
+    # disables that fallback (the tool then returns a clear 503 for those cases).
+    transcribe_agent_url: str | None = None      # TRANSCRIBE_AGENT_URL
+    transcribe_agent_secret: str | None = None   # TRANSCRIBE_AGENT_SECRET (optional bearer)
+
     # ---- Memory (SQLite append-only event log) ----
     # Railway sets RAILWAY_VOLUME_MOUNT_PATH automatically when a volume is
     # attached; the DB lives there so it survives redeploys. With no volume the
@@ -157,6 +166,12 @@ class Settings(BaseSettings):
     def whatsapp_read_configured(self) -> bool:
         """True when the laptop read-agent URL is set (drafting works regardless)."""
         return bool(self.whatsapp_agent_url)
+
+    @property
+    def transcribe_agent_configured(self) -> bool:
+        """True when an external speech-to-text agent is set (enables Instagram/audio
+        transcription; YouTube captions work regardless)."""
+        return bool(self.transcribe_agent_url)
 
     @property
     def resolved_base_url(self) -> str | None:

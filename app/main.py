@@ -22,7 +22,7 @@ from .config import get_settings
 from .mcp_server import OAUTH_ENABLED, OAUTH_PATHS, mcp, mcp_asgi, oauth_provider
 from .personalize import apply as _apply
 from .personalize import personalize, token_map
-from .routers import alistair, calendar, github, gmail, intray, memory, notion, skill, spotify, whatsapp
+from .routers import alistair, calendar, github, gmail, intray, media, memory, notion, skill, spotify, whatsapp
 from .services import ServiceError
 from .skills import skill_index
 
@@ -77,6 +77,12 @@ SHORTCUTS = [
     {"intent": "my Spotify playlists / play from a playlist",
      "calls": ["POST /api/spotify/playlists",
                "POST /api/spotify/playlist-tracks {\"playlist\":\"<uri>\"}"]},
+    {"intent": "transcribe a video / what does this YouTube or Instagram say",
+     "calls": ["POST /api/media/transcribe {\"url\":\"<video url>\"}"],
+     "then": "summarise the transcript in Alistair's voice; don't dump it raw"},
+    {"intent": "open a link / read this page / summarise this URL",
+     "calls": ["POST /api/media/open-link {\"url\":\"<url>\"}"],
+     "then": "summarise the page; for the spoken words in a video use /api/media/transcribe"},
     {"intent": "load what you remember about me (start of session)",
      "calls": ["POST /api/memory/get"]},
     {"intent": "remember / forget a fact about me",
@@ -121,6 +127,7 @@ app.include_router(whatsapp.router)
 app.include_router(intray.router)
 app.include_router(github.router)
 app.include_router(spotify.router)
+app.include_router(media.router)
 app.include_router(memory.router)
 # Coarse persona layer (composes the connectors)
 app.include_router(alistair.router)
@@ -210,13 +217,13 @@ def manifest() -> dict:
     spec = app.openapi()
     groups: dict[str, list[dict]] = {
         "notion": [], "calendar": [], "gmail": [], "whatsapp": [], "intray": [], "github": [],
-        "spotify": [], "memory": [], "alistair": [], "skill": []
+        "spotify": [], "media": [], "memory": [], "alistair": [], "skill": []
     }
     prefixes = {
         "/api/notion": "notion", "/api/calendar": "calendar", "/api/gmail": "gmail",
         "/api/whatsapp": "whatsapp", "/api/intray": "intray", "/api/github": "github",
-        "/api/spotify": "spotify", "/api/memory": "memory", "/api/alistair": "alistair",
-        "/api/skill": "skill",
+        "/api/spotify": "spotify", "/api/media": "media", "/api/memory": "memory",
+        "/api/alistair": "alistair", "/api/skill": "skill",
     }
     for path, item in spec.get("paths", {}).items():
         key = next((g for pre, g in prefixes.items() if path.startswith(pre)), None)
@@ -233,7 +240,7 @@ def manifest() -> dict:
                 "description": op.get("description", ""),
             })
 
-    function_apis = {k: groups[k] for k in ("notion", "calendar", "gmail", "whatsapp", "intray", "github", "spotify", "memory", "alistair")}
+    function_apis = {k: groups[k] for k in ("notion", "calendar", "gmail", "whatsapp", "intray", "github", "spotify", "media", "memory", "alistair")}
     description_apis = {
         "list_endpoint": "GET /api/skill",
         "get_endpoint": "GET /api/skill/{slug}",

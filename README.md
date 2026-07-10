@@ -60,11 +60,11 @@ It ships two ways from one service: a **remote MCP** (`alistair_assistant`, Stre
 
 ## What it bundles
 
-Seven connectors, each with many tool-APIs, plus the persona/memory layer, skill descriptions, and discovery: about **82 endpoints**, with the high-value subset also exposed as **60 MCP tools** on `alistair_assistant`.
+Eight connectors, each with many tool-APIs, plus the persona/memory layer, skill descriptions, and discovery: about **84 endpoints**, with the high-value subset also exposed as **60+ MCP tools** on `alistair_assistant`.
 
 | Layer | What it is | Endpoints |
 |-------|-----------|-----------|
-| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/whatsapp/*` (6), `/api/intray` (1), `/api/github/*` (11), `/api/spotify/*` (9), `/api/memory/*` (3), `/api/alistair/*` (5) |
+| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/whatsapp/*` (6), `/api/intray` (1), `/api/github/*` (11), `/api/spotify/*` (9), `/api/media/*` (2), `/api/memory/*` (3), `/api/alistair/*` (5) |
 | **Description APIs** | Skills that tell the model *what to do* (no code) | `/api/skill/{notion-master \| daily-brief \| notion-references-tray \| microsoft-todo-intray \| gmail \| spotify \| whatsapp}` (also via the MCP `get_skill` tool) |
 | **Manifest** | The catalogue of everything | `GET /api/manifest`, plus `/docs` and `/openapi.json` |
 
@@ -77,6 +77,7 @@ Seven connectors, each with many tool-APIs, plus the persona/memory layer, skill
 - **Microsoft To Do in-tray** (`/api/intray`): single hard-scoped capture list, `list` / `add` / `delete` / `done`.
 - **GitHub** (`/api/github/*`): repo read, PR read/merge, and `push-file`.
 - **Spotify** (`/api/spotify/*`): `playlists`, `search`, `devices`, `status`, `play`, `queue`, `control`, via a logged-in web session (no Developer app).
+- **Media** (`/api/media/*`): `open-link` (fetch + read any web page: title, description, plain-text excerpt) and `transcribe` (spoken transcript of a YouTube/Instagram link). YouTube reads the video's own caption track directly (no key); Instagram/audio route to an optional speech-to-text agent (`TRANSCRIBE_AGENT_URL`). Read-only.
 
 <details>
 <summary><b>Fidelity notes (how close to the real connectors)</b></summary>
@@ -120,6 +121,7 @@ All secrets **and personal identifiers** come from environment variables. Nothin
 | `GITHUB_REPO_TOKEN` | GitHub | Repo read + PR token, distinct from the gist token. Scope is the token's. |
 | `SPOTIFY_COOKIES`, `SPOTIFY_USERNAME` | Spotify | Logged-in open.spotify.com cookies (`sp_dc` essential). Refresh when calls start 401ing. |
 | `WHATSAPP_AGENT_URL/SECRET` | WhatsApp (read) | Laptop read-agent over Tailscale. Blank disables reading; drafting still works. |
+| `TRANSCRIBE_AGENT_URL/SECRET` | Media (transcribe) | Optional speech-to-text agent for Instagram/audio/caption-less YouTube. Blank = only YouTube-with-captions transcription (`open_link` + YouTube captions need nothing). |
 | `SERVICE_API_KEY` | All `/api/*` | If set, every call must send `X-API-Key`. |
 
 </details>

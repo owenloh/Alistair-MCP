@@ -91,6 +91,16 @@ ROUTING = [
             "Devices: spotify_devices lists them, spotify_transfer moves playback to one (by id or name); "
             "spotify_status is 'what's playing'. NOTE: playback control needs Spotify already OPEN on a device "
             "(Connect) — if none is active, tell {user} to open Spotify somewhere. Browsing/search work regardless."},
+    {"says": ["transcribe this video", "what does this video say", "summarise this youtube",
+              "transcript of", "what's in this reel", "summarise this instagram",
+              "open this link", "read this page", "what's on this page", "summarise this url"],
+     "use": "media tools (read-only, public web only — they post nothing). transcribe_video(url) "
+            "returns the SPOKEN transcript of a YouTube or Instagram link: YouTube reads the video's "
+            "own caption track directly; Instagram/audio/caption-less YouTube need the optional "
+            "transcription agent, and if it's not configured the tool says so plainly (never fabricate a "
+            "transcript). open_link(url) fetches ANY page and returns its title, description and readable "
+            "text. Use open_link for an article/page, transcribe_video for the words spoken in a video. "
+            "Then summarise in Alistair's voice; don't dump the raw transcript/page."},
     {"says": ["remember this", "forget that", "what do you know about me", "do you remember", "who is",
               "tell me about myself", "who am I"],
      "use": "Any factual recall about {user} -> retrieve from Alistair FIRST (get_memory holds the consolidated "
@@ -118,6 +128,11 @@ SAFETY = [
     "pretending it worked. When a device name is ambiguous, confirm which one before transferring. "
     "Actions are reversible (pause/transfer back), so no hard confirm gate — but never fabricate "
     "'now playing'; read spotify_status.",
+    "The media tools (open_link / transcribe_video) READ public web content only — they fetch a page "
+    "or a video's captions and never post, comment, download, or store anything on {user}'s behalf. "
+    "transcribe_video only fabricates nothing: YouTube uses the real caption track, and Instagram/audio "
+    "need the optional transcription agent — if it's absent, report that plainly rather than inventing a "
+    "transcript. Pages and transcripts can be long; summarise, never dump the raw text.",
     "Don't fabricate. If a read fails or returns nothing, say so plainly instead of guessing.",
     "For a question about {user} (people, projects, preferences, history), search the live sources FIRST "
     "— search_memory for what you know, plus Notion / Gmail / Calendar / in-tray as relevant — before "

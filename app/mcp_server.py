@@ -26,6 +26,7 @@ from .services import ServiceError
 from .services import alistair as alistair_service
 from .services import calendar as calendar_service
 from .services import gmail as gmail_service
+from .services import media as media_service
 from .services import memory as memory_service
 from .services import notion as notion_service
 from .services import spotify as spotify_service
@@ -965,6 +966,21 @@ def spotify_queue(track: str) -> dict:
 @mcp.tool(name="spotify_control", description=_spdocs.CONTROL)
 def spotify_control(action: str, value: float | None = None) -> dict:
     return _run(lambda: spotify_service.control(get_settings(), action, value))
+
+
+# ===================== Media (open links + transcribe videos) =====================
+# Descriptions are imported verbatim from the router docs (single source of truth).
+from .routers import _media_docs as _mediadocs  # noqa: E402
+
+
+@mcp.tool(name="open_link", description=_mediadocs.OPEN_LINK)
+def open_link(url: str, max_chars: int = 4000) -> dict:
+    return _run(lambda: media_service.open_link(get_settings(), url=url, max_chars=max_chars))
+
+
+@mcp.tool(name="transcribe_video", description=_mediadocs.TRANSCRIBE)
+def transcribe_video(url: str, lang: str | None = None) -> dict:
+    return _run(lambda: media_service.transcribe_video(get_settings(), url=url, lang=lang))
 
 
 # ---- the mounted ASGI app + auth ----
