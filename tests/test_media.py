@@ -122,8 +122,9 @@ TIMEDTEXT_JSON3 = {"events": [
     {"tStartMs": 1500, "segs": [{"utf8": "second line"}]},
     {"tStartMs": 3000, "segs": [{"utf8": "\n"}]},  # whitespace-only -> dropped
 ]}
+# Primary transport is the InnerTube player API (POST youtubei/v1/player).
 patch(routes=[
-    ("watch?v=", FakeResp(200, text=WATCH_HTML, headers={"content-type": "text/html"})),
+    ("youtubei/v1/player", FakeResp(200, payload=PLAYER)),
     ("timedtext/en", FakeResp(200, payload=TIMEDTEXT_JSON3)),
 ])
 tr = media.transcribe_video(st_plain, url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
@@ -139,7 +140,7 @@ check("yt transcript language", tr["language"] == "en")
 TIMEDTEXT_XML = '<transcript><text start="0" dur="2">hi &amp; bye</text>' \
                 '<text start="2.5" dur="1">next</text></transcript>'
 patch(routes=[
-    ("watch?v=", FakeResp(200, text=WATCH_HTML, headers={"content-type": "text/html"})),
+    ("youtubei/v1/player", FakeResp(200, payload=PLAYER)),
     ("fmt=json3", FakeResp(200, text="")),          # empty -> triggers XML fallback
     ("timedtext/en", FakeResp(200, text=TIMEDTEXT_XML)),
 ])
@@ -147,16 +148,50 @@ tr2 = media.transcribe_video(st_plain, url="https://youtu.be/dQw4w9WgXcQ")
 check("yt XML fallback text", tr2["text"] == "hi & bye next")
 check("yt XML fallback segments", tr2["segment_count"] == 2)
 
+# player degraded but watch-page fallback carries the captions
+patch(routes=[
+    ("youtubei/v1/player", FakeResp(200, payload={"videoDetails": {"title": "x"}})),  # no captions, no OK status
+    ("watch?v=", FakeResp(200, text=WATCH_HTML, headers={"content-type": "text/html"})),
+    ("timedtext/en", FakeResp(200, payload=TIMEDTEXT_JSON3)),
+])
+trw = media.transcribe_video(st_plain, url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+check("yt watch-page fallback works", trw["text"] == "hello world second line")
+
 
 # === no captions -> 503 when no agent; agent fallback when configured ===
-NO_CAP_PLAYER = {"captions": {}, "videoDetails": {"title": "Silent"}}
-NO_CAP_HTML = "ytInitialPlayerResponse = " + json.dumps(NO_CAP_PLAYER) + ";"
-patch(routes=[("watch?v=", FakeResp(200, text=NO_CAP_HTML, headers={"content-type": "text/html"}))])
+# Player says the video is playable (status OK) but has no caption track.
+NO_CAP_PLAYER = {"captions": {}, "playabilityStatus": {"status": "OK"},
+                 "videoDetails": {"title": "Silent"}}
+patch(routes=[("youtubei/v1/player", FakeResp(200, payload=NO_CAP_PLAYER))])
 try:
     media.transcribe_video(st_plain, url="https://www.youtube.com/watch?v=noCaps00000")
     check("yt no captions -> error", False)
 except ServiceError as e:
     check("yt no captions -> 503", e.status_code == 503 and "caption" in e.message.lower())
+
+# === YouTube bot wall (LOGIN_REQUIRED) -> precise 502 mentioning cookies ===
+BOT_PLAYER = {"playabilityStatus": {"status": "LOGIN_REQUIRED",
+                                    "reason": "Sign in to confirm you're not a bot"}}
+patch(routes=[
+    ("youtubei/v1/player", FakeResp(200, payload=BOT_PLAYER)),
+    ("watch?v=", FakeResp(429, text="")),  # watch page also throttled
+])
+try:
+    media.transcribe_video(st_plain, url="https://www.youtube.com/watch?v=blocked00000")
+    check("yt bot wall -> error", False)
+except ServiceError as e:
+    check("yt bot wall -> 502 + cookies hint",
+          e.status_code == 502 and "YOUTUBE_COOKIES" in e.message)
+
+# bot wall BUT agent configured -> falls through to the agent
+patch(routes=[
+    ("youtubei/v1/player", FakeResp(200, payload=BOT_PLAYER)),
+    ("watch?v=", FakeResp(429, text="")),
+    ("laptop.ts.net", FakeResp(200, payload={"text": "yt via agent"})),
+])
+tb = media.transcribe_video(st_agent, url="https://www.youtube.com/watch?v=blocked00000")
+check("yt bot wall + agent -> agent transcript",
+      tb["source"] == "transcription-agent" and tb["text"] == "yt via agent")
 
 # Instagram with no agent -> 503
 patch(routes=[])

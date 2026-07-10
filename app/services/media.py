@@ -249,25 +249,95 @@ def _json_after(text: str, marker: str) -> dict | None:
     return None
 
 
-def _caption_tracks(video_id: str) -> tuple[list[dict], dict]:
-    """Fetch the watch page and return (caption tracks, videoDetails)."""
-    resp = _get(
-        f"https://www.youtube.com/watch?v={video_id}&hl=en",
-        # CONSENT cookie sidesteps the EU consent interstitial cloud IPs often hit.
-        headers={"Cookie": "CONSENT=YES+cb"},
-    )
-    if resp.status_code != 200:
+# YouTube's InnerTube player API returns the same player JSON (captions +
+# videoDetails) as the watch page but is far less rate-limited than scraping HTML.
+_INNERTUBE_PLAYER = "https://www.youtube.com/youtubei/v1/player"
+_INNERTUBE_BODY = {
+    "context": {"client": {"clientName": "WEB", "clientVersion": "2.20240101.00.00", "hl": "en"}},
+}
+
+
+def _cookie_header(settings: Settings) -> str:
+    """CONSENT cookie (sidesteps the EU consent interstitial) plus, if configured, the
+    operator's logged-in YouTube session — which lifts YouTube's datacenter bot wall."""
+    ck = (settings.youtube_cookies or "").strip()
+    base = "CONSENT=YES+cb"
+    return f"{base}; {ck}" if ck else base
+
+
+def _captions_ok(data: dict | None) -> bool:
+    return bool(data and data.get("captions"))
+
+
+def _player_data(video_id: str, settings: Settings) -> dict:
+    """Return YouTube player JSON (captions + videoDetails).
+
+    Tries the InnerTube player API first (not HTML-scraped, rarely 429s), then falls
+    back to scraping the watch page. Raises a precise ServiceError when YouTube blocks
+    the server (datacenter bot wall) — the honest failure, never a fabricated result.
+    """
+    cookie = _cookie_header(settings)
+    data: dict | None = None
+
+    # 1) InnerTube player API (JSON in, JSON out).
+    try:
+        resp = httpx.post(
+            _INNERTUBE_PLAYER,
+            json={**_INNERTUBE_BODY, "videoId": video_id},
+            headers={
+                "User-Agent": _UA,
+                "Content-Type": "application/json",
+                "Origin": "https://www.youtube.com",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cookie": cookie,
+            },
+            timeout=_TIMEOUT,
+        )
+        if 200 <= resp.status_code < 300:
+            data = resp.json()
+    except Exception:
+        data = None
+
+    if _captions_ok(data):
+        return data
+    # Playable but genuinely no caption track — no point scraping.
+    if data and ((data.get("playabilityStatus") or {}).get("status") == "OK"):
+        return data
+
+    # 2) Fallback: scrape the watch page (helps when the API is degraded).
+    try:
+        watch = _get(f"https://www.youtube.com/watch?v={video_id}&hl=en", headers={"Cookie": cookie})
+    except ServiceError:
+        watch = None
+    if watch is not None and watch.status_code == 200:
+        scraped = _json_after(watch.text, "ytInitialPlayerResponse")
+        if scraped and (_captions_ok(scraped) or (scraped.get("playabilityStatus") or {}).get("status") == "OK"):
+            return scraped
+        if scraped and data is None:
+            data = scraped
+
+    # 3) Nothing usable — explain exactly why.
+    status = (data or {}).get("playabilityStatus") or {}
+    reason = status.get("reason") or ""
+    if status.get("status") == "LOGIN_REQUIRED" or "bot" in reason.lower() or "sign in" in reason.lower():
         raise ServiceError(
-            f"YouTube returned HTTP {resp.status_code} for this video.",
+            f'YouTube is blocking this server as a suspected bot ("{reason or "sign in required"}"). '
+            "This is common from datacenter/cloud IPs (including Railway). Set YOUTUBE_COOKIES to a "
+            "logged-in browser session (same idea as SPOTIFY_COOKIES), or configure TRANSCRIBE_AGENT_URL.",
             status_code=502,
         )
-    data = _json_after(resp.text, "ytInitialPlayerResponse")
-    if not data:
+    if data is None:
         raise ServiceError(
-            "Could not read YouTube's player data (the page layout may have changed, "
-            "or the video is private/age-restricted).",
+            "Could not reach YouTube to read this video (it may be rate-limiting this server, or the "
+            "video is private/unavailable).",
             status_code=502,
         )
+    return data
+
+
+def _caption_tracks(video_id: str, settings: Settings) -> tuple[list[dict], dict]:
+    """Return (caption tracks, videoDetails) for a YouTube video."""
+    data = _player_data(video_id, settings)
     tracks = (
         data.get("captions", {})
         .get("playerCaptionsTracklistRenderer", {})
@@ -328,8 +398,8 @@ def _segments_from_timedtext(base_url: str) -> list[dict]:
     return segs
 
 
-def _youtube_transcript(video_id: str, url: str, lang: str | None) -> dict:
-    tracks, details = _caption_tracks(video_id)
+def _youtube_transcript(video_id: str, url: str, lang: str | None, settings: Settings) -> dict:
+    tracks, details = _caption_tracks(video_id, settings)
     track = _pick_track(tracks, lang)
     if track is None:
         raise _NoCaptions()
@@ -437,12 +507,18 @@ def transcribe_video(settings: Settings, *, url: str, lang: str | None = None) -
 
     if platform == "youtube":
         try:
-            return _youtube_transcript(youtube_id(url), url, lang)
+            return _youtube_transcript(youtube_id(url), url, lang, settings)
         except _NoCaptions:
             return _agent_or_503(
                 settings, url, lang, platform,
                 reason="This YouTube video has no caption track.",
             )
+        except ServiceError:
+            # YouTube blocked/failed the read. If an STT agent is configured it can
+            # still handle YouTube; otherwise surface the precise reason (bot wall etc).
+            if settings.transcribe_agent_configured:
+                return _agent_transcribe(settings, url, lang, platform)
+            raise
 
     if platform == "instagram":
         return _agent_or_503(

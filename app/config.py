@@ -141,6 +141,11 @@ class Settings(BaseSettings):
     # disables that fallback (the tool then returns a clear 503 for those cases).
     transcribe_agent_url: str | None = None      # TRANSCRIBE_AGENT_URL
     transcribe_agent_secret: str | None = None   # TRANSCRIBE_AGENT_SECRET (optional bearer)
+    # YouTube bot-walls unauthenticated requests from datacenter/cloud IPs (Railway
+    # included). Optionally paste a logged-in open.youtube.com cookie string here (same
+    # idea as SPOTIFY_COOKIES) to lift that wall. Blank = try without cookies (works from
+    # many IPs; a blocked one returns a clear "sign in to confirm you're not a bot" error).
+    youtube_cookies: str | None = None           # YOUTUBE_COOKIES
 
     # ---- Memory (SQLite append-only event log) ----
     # Railway sets RAILWAY_VOLUME_MOUNT_PATH automatically when a volume is

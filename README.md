@@ -77,7 +77,7 @@ Eight connectors, each with many tool-APIs, plus the persona/memory layer, skill
 - **Microsoft To Do in-tray** (`/api/intray`): single hard-scoped capture list, `list` / `add` / `delete` / `done`.
 - **GitHub** (`/api/github/*`): repo read, PR read/merge, and `push-file`.
 - **Spotify** (`/api/spotify/*`): `playlists`, `search`, `devices`, `status`, `play`, `queue`, `control`, via a logged-in web session (no Developer app).
-- **Media** (`/api/media/*`): `open-link` (fetch + read any web page: title, description, plain-text excerpt) and `transcribe` (spoken transcript of a YouTube/Instagram link). YouTube reads the video's own caption track directly (no key); Instagram/audio route to an optional speech-to-text agent (`TRANSCRIBE_AGENT_URL`). Read-only.
+- **Media** (`/api/media/*`): `open-link` (fetch + read any web page: title, description, plain-text excerpt) and `transcribe` (spoken transcript of a YouTube/Instagram link). YouTube reads the video's own caption track via the InnerTube API (no key); from datacenter IPs YouTube may bot-wall the request, so set `YOUTUBE_COOKIES` if needed. Instagram/audio/caption-less YouTube route to an optional speech-to-text agent (`TRANSCRIBE_AGENT_URL`). Read-only; degrades to a clear error, never a fabricated transcript.
 
 <details>
 <summary><b>Fidelity notes (how close to the real connectors)</b></summary>
@@ -122,6 +122,7 @@ All secrets **and personal identifiers** come from environment variables. Nothin
 | `SPOTIFY_COOKIES`, `SPOTIFY_USERNAME` | Spotify | Logged-in open.spotify.com cookies (`sp_dc` essential). Refresh when calls start 401ing. |
 | `WHATSAPP_AGENT_URL/SECRET` | WhatsApp (read) | Laptop read-agent over Tailscale. Blank disables reading; drafting still works. |
 | `TRANSCRIBE_AGENT_URL/SECRET` | Media (transcribe) | Optional speech-to-text agent for Instagram/audio/caption-less YouTube. Blank = only YouTube-with-captions transcription (`open_link` + YouTube captions need nothing). |
+| `YOUTUBE_COOKIES` | Media (transcribe) | Optional. A logged-in youtube.com cookie string that lifts YouTube's datacenter bot wall ("sign in to confirm you're not a bot"). Blank = try without; a blocked IP returns a clear error. |
 | `SERVICE_API_KEY` | All `/api/*` | If set, every call must send `X-API-Key`. |
 
 </details>
