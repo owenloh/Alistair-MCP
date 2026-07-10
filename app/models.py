@@ -29,6 +29,26 @@ class IntrayRequest(BaseModel):
     }
 
 
+class OpenLinkRequest(BaseModel):
+    """Body for POST /api/media/open-link."""
+
+    url: str = Field(description="The web link to open/fetch (http(s); a bare host is prefixed with https).")
+    max_chars: int = Field(
+        default=4000, ge=200, le=20000,
+        description="Max characters of body text to return in the excerpt.",
+    )
+
+
+class TranscribeRequest(BaseModel):
+    """Body for POST /api/media/transcribe."""
+
+    url: str = Field(description="A YouTube or Instagram video / reel / short URL.")
+    lang: str | None = Field(
+        default=None,
+        description="Preferred caption language code (e.g. 'en'). Optional; best available otherwise.",
+    )
+
+
 class PushFileRequest(BaseModel):
     """Body for POST /api/github/push-file (the future-proofing extension)."""
 
