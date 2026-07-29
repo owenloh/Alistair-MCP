@@ -49,6 +49,38 @@ class TranscribeRequest(BaseModel):
     )
 
 
+class WeatherRequest(BaseModel):
+    """Body for POST /api/weather."""
+
+    location: str | None = Field(
+        default=None,
+        description="Place name ('Kuala Lumpur', 'Cambridge, UK') or a raw 'lat,lon' pair. "
+                    "Omit to use the user's own location, inferred from their live timezone.",
+    )
+    when: str | None = Field(
+        default=None,
+        description="Plain English ('now', 'tonight', 'tomorrow morning', 'this weekend', "
+                    "'next Friday', 'in a week', 'next 5 days') or exact dates/ranges "
+                    "('2026-08-03', '3 Aug', '3-7 Aug', '2026-08-03 to 2026-08-07'). "
+                    "Defaults to now. Resolved in the destination's timezone.",
+    )
+    units: Literal["metric", "imperial"] = Field(
+        default="metric",
+        description="metric = °C / km/h / mm; imperial = °F / mph / inch.",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"when": "tonight"},
+                {"location": "Tokyo", "when": "tomorrow morning"},
+                {"location": "Cambridge, UK", "when": "3-7 Aug"},
+                {"location": "3.139,101.687", "when": "in a week", "units": "imperial"},
+            ]
+        }
+    }
+
+
 class PushFileRequest(BaseModel):
     """Body for POST /api/github/push-file (the future-proofing extension)."""
 

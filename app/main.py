@@ -22,7 +22,7 @@ from .config import get_settings
 from .mcp_server import OAUTH_ENABLED, OAUTH_PATHS, mcp, mcp_asgi, oauth_provider
 from .personalize import apply as _apply
 from .personalize import personalize, token_map
-from .routers import alistair, calendar, github, gmail, intray, media, memory, notion, skill, spotify, whatsapp
+from .routers import alistair, calendar, github, gmail, intray, media, memory, notion, skill, spotify, weather, whatsapp
 from .services import ServiceError
 from .skills import skill_index
 
@@ -83,6 +83,11 @@ SHORTCUTS = [
     {"intent": "open a link / read this page / summarise this URL",
      "calls": ["POST /api/media/open-link {\"url\":\"<url>\"}"],
      "then": "summarise the page; for the spoken words in a video use /api/media/transcribe"},
+    {"intent": "weather / will it rain / forecast (any place, any time)",
+     "calls": ["POST /api/weather {\"when\":\"tonight\"}",
+               "POST /api/weather {\"location\":\"Tokyo\",\"when\":\"tomorrow morning\"}",
+               "POST /api/weather {\"location\":\"Cambridge, UK\",\"when\":\"3-7 Aug\"}"],
+     "then": "never web-search the weather; omit location to use {user}'s own, and answer with what matters (coat? umbrella?)"},
     {"intent": "load what you remember about me (start of session)",
      "calls": ["POST /api/memory/get"]},
     {"intent": "remember / forget a fact about me",
@@ -128,6 +133,7 @@ app.include_router(intray.router)
 app.include_router(github.router)
 app.include_router(spotify.router)
 app.include_router(media.router)
+app.include_router(weather.router)
 app.include_router(memory.router)
 # Coarse persona layer (composes the connectors)
 app.include_router(alistair.router)
@@ -217,12 +223,13 @@ def manifest() -> dict:
     spec = app.openapi()
     groups: dict[str, list[dict]] = {
         "notion": [], "calendar": [], "gmail": [], "whatsapp": [], "intray": [], "github": [],
-        "spotify": [], "media": [], "memory": [], "alistair": [], "skill": []
+        "spotify": [], "media": [], "weather": [], "memory": [], "alistair": [], "skill": []
     }
     prefixes = {
         "/api/notion": "notion", "/api/calendar": "calendar", "/api/gmail": "gmail",
         "/api/whatsapp": "whatsapp", "/api/intray": "intray", "/api/github": "github",
-        "/api/spotify": "spotify", "/api/media": "media", "/api/memory": "memory",
+        "/api/spotify": "spotify", "/api/media": "media", "/api/weather": "weather",
+        "/api/memory": "memory",
         "/api/alistair": "alistair", "/api/skill": "skill",
     }
     for path, item in spec.get("paths", {}).items():
@@ -240,7 +247,7 @@ def manifest() -> dict:
                 "description": op.get("description", ""),
             })
 
-    function_apis = {k: groups[k] for k in ("notion", "calendar", "gmail", "whatsapp", "intray", "github", "spotify", "media", "memory", "alistair")}
+    function_apis = {k: groups[k] for k in ("notion", "calendar", "gmail", "whatsapp", "intray", "github", "spotify", "media", "weather", "memory", "alistair")}
     description_apis = {
         "list_endpoint": "GET /api/skill",
         "get_endpoint": "GET /api/skill/{slug}",
