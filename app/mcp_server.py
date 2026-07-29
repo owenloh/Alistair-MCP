@@ -30,6 +30,7 @@ from .services import media as media_service
 from .services import memory as memory_service
 from .services import notion as notion_service
 from .services import spotify as spotify_service
+from .services import weather as weather_service
 from .services import whatsapp as whatsapp_service
 from .skills import list_slugs, load_skill, serve_skill
 
@@ -981,6 +982,17 @@ def open_link(url: str, max_chars: int = 4000) -> dict:
 @mcp.tool(name="transcribe_video", description=_mediadocs.TRANSCRIBE)
 def transcribe_video(url: str, lang: str | None = None) -> dict:
     return _run(lambda: media_service.transcribe_video(get_settings(), url=url, lang=lang))
+
+
+# ===================== Weather (place + time, one API call) =====================
+from .routers import _weather_docs as _weatherdocs  # noqa: E402
+
+
+@mcp.tool(name="weather", description=_weatherdocs.WEATHER)
+def weather(location: str | None = None, when: str | None = None,
+            units: str = "metric") -> dict:
+    return _run(lambda: weather_service.weather(
+        get_settings(), location=location, when=when, units=units))
 
 
 # ---- the mounted ASGI app + auth ----

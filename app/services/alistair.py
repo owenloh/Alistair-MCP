@@ -101,6 +101,15 @@ ROUTING = [
             "transcript). open_link(url) fetches ANY page and returns its title, description and readable "
             "text. Use open_link for an article/page, transcribe_video for the words spoken in a video. "
             "Then summarise in Alistair's voice; don't dump the raw transcript/page."},
+    {"says": ["what's the weather", "will it rain", "forecast", "do I need a coat/umbrella",
+              "weather in <place>", "weather tonight/tomorrow/this weekend/next week"],
+     "use": "weather(location, when, units) — ONE API call, instant. NEVER web-search the weather. "
+            "Omit location to use {user}'s own (inferred from their live timezone); pass a place name or "
+            "'lat,lon' for anywhere else. `when` takes plain English ('now', 'tonight', 'tomorrow morning', "
+            "'this weekend', 'next Friday', 'in a week', 'next 5 days') or exact dates/ranges ('3 Aug', "
+            "'3-7 Aug', '2026-08-03 to 2026-08-07'), resolved in the DESTINATION's timezone. Covers 92 days "
+            "back to 16 days ahead; beyond that it says so instead of guessing. Answer with the decision "
+            "({user} needs a coat / umbrella / it's fine), not the whole table."},
     {"says": ["remember this", "forget that", "what do you know about me", "do you remember", "who is",
               "tell me about myself", "who am I"],
      "use": "Any factual recall about {user} -> retrieve from Alistair FIRST (get_memory holds the consolidated "

@@ -60,11 +60,11 @@ It ships two ways from one service: a **remote MCP** (`alistair_assistant`, Stre
 
 ## What it bundles
 
-Eight connectors, each with many tool-APIs, plus the persona/memory layer, skill descriptions, and discovery: about **84 endpoints**, with the high-value subset also exposed as **60+ MCP tools** on `alistair_assistant`.
+Nine connectors, each with many tool-APIs, plus the persona/memory layer, skill descriptions, and discovery: about **85 endpoints**, with the high-value subset also exposed as **65 MCP tools** on `alistair_assistant`.
 
 | Layer | What it is | Endpoints |
 |-------|-----------|-----------|
-| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/whatsapp/*` (6), `/api/intray` (1), `/api/github/*` (11), `/api/spotify/*` (9), `/api/media/*` (2), `/api/memory/*` (3), `/api/alistair/*` (5) |
+| **Function APIs** | Connector tools that *do* things | `/api/notion/*` (16), `/api/calendar/*` (9), `/api/gmail/*` (6), `/api/whatsapp/*` (6), `/api/intray` (1), `/api/github/*` (11), `/api/spotify/*` (9), `/api/media/*` (2), `/api/weather` (1), `/api/memory/*` (3), `/api/alistair/*` (5) |
 | **Description APIs** | Skills that tell the model *what to do* (no code) | `/api/skill/{notion-master \| daily-brief \| notion-references-tray \| microsoft-todo-intray \| gmail \| spotify \| whatsapp}` (also via the MCP `get_skill` tool) |
 | **Manifest** | The catalogue of everything | `GET /api/manifest`, plus `/docs` and `/openapi.json` |
 
@@ -78,6 +78,7 @@ Eight connectors, each with many tool-APIs, plus the persona/memory layer, skill
 - **GitHub** (`/api/github/*`): repo read, PR read/merge, and `push-file`.
 - **Spotify** (`/api/spotify/*`): `playlists`, `search`, `devices`, `status`, `play`, `queue`, `control`, via a logged-in web session (no Developer app).
 - **Media** (`/api/media/*`): `open-link` (fetch + read any web page: title, description, plain-text excerpt) and `transcribe` (spoken transcript of a YouTube/Instagram link). YouTube reads the video's own caption track via the InnerTube API (no key); from datacenter IPs YouTube may bot-wall the request, so set `YOUTUBE_COOKIES` if needed. Instagram/audio/caption-less YouTube route to an optional speech-to-text agent (`TRANSCRIBE_AGENT_URL`). Read-only; degrades to a clear error, never a fabricated transcript.
+- **Weather** (`/api/weather`): one call for any weather question — a place (name, `lat,lon`, or your own timezone-inferred location) plus a time in plain English (`tonight`, `tomorrow morning`, `this weekend`, `next Friday`, `in a week`) or exact dates/ranges (`3 Aug`, `3-7 Aug`, `2026-08-03 to 2026-08-07`). Times resolve in the *destination's* timezone. Returns current conditions, hourly detail for narrow windows, and daily highs/lows, rain chance, wind, UV and sunrise/sunset. Backed by [Open-Meteo](https://open-meteo.com) — free, no API key, no config. Range: 92 days back to 16 days ahead; beyond that it says so rather than guessing.
 
 <details>
 <summary><b>Fidelity notes (how close to the real connectors)</b></summary>

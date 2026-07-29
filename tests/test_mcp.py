@@ -46,8 +46,8 @@ names = set(by_name)
 
 # === server identity + tool registration ===
 check("server name is snake_case alistair_assistant", M.mcp.name == "alistair_assistant")
-check("64 tools registered (53 + 9 spotify + 2 media)",
-      len(tools) == 64)
+check("65 tools registered (53 + 9 spotify + 2 media + 1 weather)",
+      len(tools) == 65)
 check("tool present: search_memory", "search_memory" in names)
 check("tool present: memory_maintenance", "memory_maintenance" in names)
 for blk in ("notion_list_blocks", "notion_append_blocks", "notion_update_block",
@@ -206,7 +206,7 @@ with TestClient(asgi) as cl:
     check("/mcp wrong key -> 401", rwrong.status_code == 401)
     # REST still flows through the dispatcher to FastAPI
     check("dispatcher passes /health to FastAPI", cl.get("/health").status_code == 200)
-    check("dispatcher passes /api/manifest to FastAPI", cl.get("/api/manifest").json()["counts"]["total"] == 84)
+    check("dispatcher passes /api/manifest to FastAPI", cl.get("/api/manifest").json()["counts"]["total"] == 85)
 os.environ.pop("SERVICE_API_KEY", None); _cfg.get_settings.cache_clear()
 
 # --- results ---
