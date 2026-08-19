@@ -1,4 +1,4 @@
-# Alistair Memory — scoring + selection formula (V1)
+# Alistair Memory — scoring, selection, and guarded writes
 
 Source of truth for task #5 (memory layer). Provided by the user; mirrors the Pipecat
 local-memory model (`backend/memory/store.py`). Two parts: **scoring** (rank) +
@@ -11,10 +11,12 @@ score(e) = (relevance / 5) * exp( -max(0, age_days) / 30 )
 ```
 
 - `relevance` = int 1–5 (set at write; default 3). `/5` → 0–1.
-- `age_days` = `now − created_at`, in days (`julianday('now') − julianday(created_at)`).
+- `age_days` = `now − last_confirmed_at`, in days. For legacy rows and never-confirmed
+  memories, `last_confirmed_at = created_at`.
 - `max(0, …)` clamps future timestamps (clock skew) to 0.
 - `TAU = 30d` decay constant → **half-life ≈ 21 days** (`30·ln2`). Tune TAU to move half-life.
-- Pure recency × relevance. **No embeddings / semantic match in V1.**
+- Pure confirmation recency × relevance. Reads never change `last_confirmed_at`.
+  **No embeddings, model API, or server-side semantic decision.**
 
 ## 2. Selection (`read_memory_block`)
 
@@ -39,28 +41,55 @@ decayed tail.
   `Facts / Preferences / Open items / Recent summary`, one `- line` each. Empty content
   filtered (`content IS NOT NULL AND TRIM != ''`).
 
-## 3. Write + dedup
+## 3. Write, confirmation, and deterministic candidates
 
 ```
 norm(s) = lowercase, strip punctuation [^\w\s]→space, collapse whitespace
-on insert: skip if norm(content) == norm(existing) for any entry of SAME type
+dedup_key = norm(content) + 0x1f + type
+exact active match -> append confirm event; keep canonical text + created_at
+otherwise -> rank lexical candidates from the full active folded store; return <= 3
 ```
 
-Catches case/punct/spacing variants ("User is vegan." == "user is VEGAN"). Paraphrase
-dedup deferred (needs embeddings). Default relevance 3 if unset.
+Catches case/punctuation/spacing variants. Candidate retrieval uses normalized content/tag
+token overlap plus type, with stable tie-breaking. It deliberately makes no semantic claim.
+If candidates are returned, the first call writes nothing. The connected client model must
+make a second explicit call:
+
+- `create`: genuinely new; keep both.
+- `refresh`: same meaning; append `confirm` for the target and keep one canonical entry.
+- `supersede`: target is outdated; append target `retract` plus replacement `assert` in one transaction.
+- `conflict`: leave unwritten.
+
+The shortlist exposes `memory_id`, derived from the first assertion row in the current active
+lifecycle. It remains stable across confirmations. Retraction by ID avoids making a model resend
+old text. Existing SQLite volumes need no table rewrite: `confirm` is a new value in the existing
+text `op` column, and legacy rows derive `memory_id` and `last_confirmed_at` during fold.
 
 ## 4. Mapping to the MCP event-log (build-spec §3)
 
 Current store = mutable rows. MCP spec wants an **append-only event log**. The formula is
 unchanged — apply it to the *folded* state:
 
-1. Fold log → current entries: latest `assert` per `dedup_key`, minus `retract`s.
+1. Fold log → current entries: latest `assert` per `dedup_key`, `confirm` updates only
+   `last_confirmed_at`, and `retract` removes the active entry.
    (`dedup_key` = `norm(content)` + type, replacing the inline dedup.)
 2. Run scoring + core-pin selection on the folded set, **identical math**.
-3. `relevance`, `created_at` carried on each event. On `merge`/re-assert, keep
-   **earliest** `created_at` (recommended = true fact age, so reaffirming doesn't reset
-   decay) — or **latest** for "last reaffirmed" recency. Pick one and document it.
-   **Decision: earliest.**
+3. Preserve the earliest `created_at` for provenance. Rank by the latest explicit
+   `last_confirmed_at`, so reaffirmation refreshes ranking while mere recall does not.
+
+## 5. Relevance and transient-write guardrails
+
+- **5:** permanent cross-client identity/address-form, safety, tool-ownership, or
+  core-workflow invariant. Requires `core_memory=true`.
+- **4:** durable and important, but situational.
+- **3:** default durable context.
+- **2:** narrow, uncertain, or deferred context.
+- **1:** normally reject or route elsewhere.
+
+`action`, `summary`, relevance 1, and obvious transient logistics are rejected unless
+`explicitly_requested=true`, which means the user explicitly asked to remember that exact
+exception. Normal tasks, plans, run/brew logs, and today's logistics belong in the in-tray
+or Notion.
 
 ## Tunables (lift into MCP config)
 

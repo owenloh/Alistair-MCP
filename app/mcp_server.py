@@ -47,9 +47,10 @@ INSTRUCTIONS = (
     "block; use search_memory to recall anything older/specific that isn't in it. For ANY factual "
     "recall about {user} ('tell me about myself', 'what do you know about me', who/what/when about them), "
     "retrieve from Alistair (get_memory / search_memory) and answer from THIS store — treat it as "
-    "canonical over any local/built-in memory, which may be stale. Save "
-    "durable facts/preferences/open-loops with save_memory the moment they surface (read or "
-    "search first to dedupe); never save transient or experiment data — that goes to Notion. "
+    "canonical over any local/built-in memory, which may be stale. Save durable facts and "
+    "preferences with save_memory the moment they surface. If it returns possible_duplicate, "
+    "compare only those candidates and make the required second call; never silently append. "
+    "Never save transient or experiment data — that goes to Notion. "
     "At the END of a conversation/session, run a light memory tidy: call memory_maintenance and "
     "merge/retract the obvious duplicates you just created (it returns the full store + the procedure). "
     "Notion is sacred: load the notion-master skill before any Notion write, edit surgically, "
@@ -180,21 +181,28 @@ def search_memory(query: str | None = None, limit: int = 20, type: str | None = 
 @mcp.tool(
     name="save_memory",
     description=(
-        "The ONLY way to write Alistair's memory — the shared store every connected client "
-        "(claude.ai, voice, Gemini) reads. Save DURABLE things only: a standing fact, a "
-        "preference, or an open commitment/loop. Do NOT save transient or experiment data "
-        "(coffee numbers, run logs, one-off values) — that belongs in Notion. type is "
-        "fact|preference|action|summary; relevance 1-5, and 5 is ONLY for permanent "
-        "identity/safety facts (pinned, never evicted) — default 3. Read/search first to avoid "
-        "duplicates (writing is append-only + de-duped). To forget, pass op='retract' with the "
-        "same type+content. Capture-only 'remind me' tasks go to the in-tray, not here."
+        "The ONLY memory write path. FIRST call: send one durable proposed fact/preference. Exact "
+        "repeat -> refreshed confirmation. possible_duplicate -> NO WRITE and at most 3 candidates; "
+        "compare only them, then SECOND call with resolution=create (genuinely new/keep both), "
+        "refresh (same meaning), supersede (candidate is outdated), or conflict (leave unwritten). "
+        "refresh/supersede require the returned target_memory_id. Relevance rubric: 5 ONLY permanent "
+        "cross-client identity/address-form, safety, tool-ownership, or core-workflow invariants "
+        "(set core_memory=true); 4 durable important but situational; 3 default durable context; "
+        "2 narrow/uncertain/deferred; 1 normally reject/route elsewhere. action, summary, relevance "
+        "1, and transient logistics require explicitly_requested=true because tasks/logs belong in "
+        "the in-tray or Notion. Reads never refresh. To forget, op=retract with target_memory_id "
+        "preferred (legacy exact type+content remains supported)."
     ),
 )
-def save_memory(content: str, type: str = "fact", relevance: int = 3,
-                tags: str | None = None, op: str = "assert") -> dict:
+def save_memory(content: str | None = None, type: str = "fact", relevance: int = 3,
+                tags: str | None = None, op: str = "assert",
+                resolution: str | None = None, target_memory_id: int | None = None,
+                explicitly_requested: bool = False, core_memory: bool = False) -> dict:
     return _run(lambda: memory_service.op_save_memory(
         get_settings(), content=content, type_=type, relevance=relevance,
-        tags=tags, op=op, source="mcp",
+        tags=tags, op=op, source="mcp", resolution=resolution,
+        target_memory_id=target_memory_id, explicitly_requested=explicitly_requested,
+        core_memory=core_memory,
     ))
 
 

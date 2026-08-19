@@ -6,11 +6,14 @@ Implements docs/MEMORY_FORMULA.md exactly:
     are never mutated. Current state = *fold* the log (latest `assert` per
     `dedup_key`, minus `retract`s).
   * **Score** `score(e) = (relevance/5) * exp(-max(0, age_days)/TAU)` — pure
-    recency x relevance, no embeddings in V1.
+    confirmation-recency x relevance, no embeddings or model dependency.
   * **Selection** pins CORE (`relevance >= core_relevance`, never evicted), fills
     the decayed REST tail up to `top_n`, then trims REST to the token budget.
-  * **dedup_key** = `norm(content) + 0x1f + type`. On re-assert we keep the
-    **earliest** created_at (reaffirming a fact does not reset its decay).
+  * **dedup_key** = `norm(content) + 0x1f + type`. `confirm` events refresh
+    last_confirmed_at while preserving the original created_at and canonical text.
+  * **Two-stage writes.** Cheap deterministic overlap over the full active store
+    returns at most three plausible duplicates. A client model must explicitly
+    create/keep-both, refresh, supersede, or flag a conflict.
 
 Single writer = this process: a module-level lock serialises the read-fold-append
 of `save`, and SQLite runs in WAL mode with a busy timeout so concurrent readers
@@ -24,6 +27,7 @@ import os
 import re
 import sqlite3
 import threading
+from collections.abc import Iterable
 from datetime import datetime, timezone
 
 from . import ServiceError
@@ -58,6 +62,18 @@ CREATE INDEX IF NOT EXISTS idx_memory_dedup ON memory_events(dedup_key);
 
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 _WS_RE = re.compile(r"\s+")
+_TRANSIENT_RE = re.compile(
+    r"\b(today|tonight|tomorrow|yesterday|this (?:morning|afternoon|evening|week)|"
+    r"next (?:week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|"
+    r"remind me|todo|to-do|meeting at|appointment at|brew (?:number|#)|run log)\b",
+    re.IGNORECASE,
+)
+_CANDIDATE_LIMIT = 3
+_STOP_WORDS = frozenset(
+    "a an and are as at be been being by for from has have he her hers him his i in "
+    "is it its me my of on or our ours she that the their theirs them they this to was "
+    "we were with you your yours user owen".split()
+)
 
 
 # ---------------------------------------------------------------------------
@@ -84,9 +100,10 @@ def _clamp_rel(relevance) -> int:
 def _fold(rows) -> list[dict]:
     """Fold the ascending event log into current entries.
 
-    latest `assert` wins per dedup_key; `retract` removes; created_at is the
-    earliest assert ts for that key (a retract clears it, so a later re-assert
-    starts a fresh age — an explicit forget is a real reset, a reaffirm is not).
+    Latest `assert` wins per dedup_key; `confirm` refreshes only confirmation
+    recency; `retract` removes. created_at is the earliest assert ts in the
+    current active lifecycle. memory_id is that first assert row id, so it is
+    stable across confirmations and metadata re-assertions without a migration.
     """
     state: dict[str, dict] = {}
     for r in rows:  # ascending id == chronological
@@ -94,10 +111,13 @@ def _fold(rows) -> list[dict]:
         if r["op"] == "assert":
             prev = state.get(key)
             created = r["ts"]
-            if prev and prev["created_at"] < created:
-                created = prev["created_at"]
+            memory_id = r["id"]
+            if prev:
+                created = min(prev["created_at"], created)
+                memory_id = prev["memory_id"]
             state[key] = {
                 "id": r["id"],
+                "memory_id": memory_id,
                 "type": r["type"],
                 "content": r["content"],
                 "relevance": _clamp_rel(r["relevance"]),
@@ -105,15 +125,23 @@ def _fold(rows) -> list[dict]:
                 "source": r["source"],
                 "ts": r["ts"],
                 "created_at": created,
+                "last_confirmed_at": r["ts"],
                 "dedup_key": key,
             }
+        elif r["op"] == "confirm":
+            prev = state.get(key)
+            if prev:
+                prev["id"] = r["id"]
+                prev["ts"] = r["ts"]
+                prev["last_confirmed_at"] = r["ts"]
+                prev["source"] = r["source"] or prev["source"]
         elif r["op"] == "retract":
             state.pop(key, None)
     return [e for e in state.values() if (e["content"] or "").strip()]
 
 
 def _score(entry: dict, now: datetime, tau_days: float) -> float:
-    raw = entry.get("created_at") or entry.get("ts")
+    raw = entry.get("last_confirmed_at") or entry.get("created_at") or entry.get("ts")
     try:
         created = datetime.fromisoformat(raw)
     except (TypeError, ValueError):
@@ -160,6 +188,107 @@ def _select(entries, now, tau_days, core_relevance, top_n, max_tokens):
     return selected, core
 
 
+def _word_tokens(*values: str | None) -> set[str]:
+    """Meaningful normalized words for deterministic candidate retrieval."""
+    return {
+        token
+        for value in values
+        for token in _norm(value).split()
+        if token and token not in _STOP_WORDS and len(token) > 1
+    }
+
+
+def _candidate_score(
+    entry: dict, content: str, type_: str, tags: str | None
+) -> tuple[float, int] | None:
+    """Return deterministic lexical similarity, or None when implausible."""
+    proposed = _word_tokens(content, tags)
+    existing = _word_tokens(entry.get("content"), entry.get("tags"))
+    if not proposed or not existing:
+        return None
+    overlap = proposed & existing
+    count = len(overlap)
+    if not count:
+        return None
+    containment = count / min(len(proposed), len(existing))
+    jaccard = count / len(proposed | existing)
+    phrase = _norm(content) in _norm(entry.get("content")) or _norm(
+        entry.get("content")
+    ) in _norm(content)
+    plausible = phrase or count >= 2 and (containment >= 0.4 or jaccard >= 0.25)
+    plausible = plausible or count == 1 and min(len(proposed), len(existing)) <= 2
+    if not plausible:
+        return None
+    score = 0.55 * containment + 0.35 * jaccard
+    if entry.get("type") == type_:
+        score += 0.1
+    return score, count
+
+
+def _find_candidates(
+    entries: Iterable[dict], content: str, type_: str, tags: str | None
+) -> list[dict]:
+    """Return at most three full-store lexical candidates in a stable order."""
+    ranked = []
+    for entry in entries:
+        similarity = _candidate_score(entry, content, type_, tags)
+        if similarity is None:
+            continue
+        score, overlap = similarity
+        ranked.append((score, overlap, entry))
+    ranked.sort(
+        key=lambda item: (-item[0], -item[1], -item[2]["relevance"], item[2]["memory_id"])
+    )
+    return [
+        {
+            "memory_id": entry["memory_id"],
+            "type": entry["type"],
+            "content": entry["content"],
+            "relevance": entry["relevance"],
+            "tags": entry["tags"],
+            "created_at": entry["created_at"],
+            "last_confirmed_at": entry["last_confirmed_at"],
+            "similarity": round(score, 4),
+        }
+        for score, _overlap, entry in ranked[:_CANDIDATE_LIMIT]
+    ]
+
+
+def _validate_write_guardrails(
+    content: str,
+    type_: str,
+    relevance,
+    *,
+    explicitly_requested: bool,
+    core_memory: bool,
+) -> int:
+    """Enforce the parts of the memory rubric the storage layer can know."""
+    try:
+        raw_rel = int(relevance)
+    except (TypeError, ValueError):
+        raw_rel = 3
+    if raw_rel < 1 or raw_rel > 5:
+        raise ServiceError("relevance must be an integer from 1 to 5.", status_code=400)
+    if raw_rel == 5 and not core_memory:
+        raise ServiceError(
+            "relevance 5 is reserved for permanent cross-client identity, safety, "
+            "tool-ownership, or core-workflow invariants; retry with core_memory=true "
+            "only when that standard is met.",
+            status_code=400,
+        )
+    transient_reason = type_ in ("action", "summary") or raw_rel == 1 or bool(
+        _TRANSIENT_RE.search(content)
+    )
+    if transient_reason and not explicitly_requested:
+        raise ServiceError(
+            "This looks transient, automated, or too low-value for shared memory. Route "
+            "tasks/logistics to the in-tray or Notion. Retry with explicitly_requested=true "
+            "only when the user explicitly asked for this exact item to be remembered.",
+            status_code=400,
+        )
+    return raw_rel
+
+
 # ---------------------------------------------------------------------------
 # IO
 # ---------------------------------------------------------------------------
@@ -200,9 +329,13 @@ def op_save_memory(
     tags: str | None = None,
     source: str | None = "voice",
     op: str = "assert",
+    resolution: str | None = None,
+    target_memory_id: int | None = None,
+    explicitly_requested: bool = False,
+    core_memory: bool = False,
     now: datetime | None = None,
 ) -> dict:
-    """The ONLY write path. Appends an assert/retract event (dedup-aware)."""
+    """The only write path: append an event after deterministic duplicate checks."""
     type_ = (type_ or "fact").strip().lower()
     if type_ not in ALLOWED_TYPES:
         raise ServiceError(
@@ -213,9 +346,25 @@ def op_save_memory(
     if op not in ("assert", "retract"):
         raise ServiceError("op must be 'assert' or 'retract'.", status_code=400)
     content = (content or "").strip()
-    if not content:
+    if not content and not (op == "retract" and target_memory_id is not None):
         raise ServiceError("memory 'content' is required.", status_code=400)
-    rel = _clamp_rel(relevance)
+    resolution = (resolution or "").strip().lower() or None
+    if resolution not in (None, "create", "refresh", "supersede", "conflict"):
+        raise ServiceError(
+            "resolution must be create, refresh, supersede, or conflict.",
+            status_code=400,
+        )
+    rel = (
+        _validate_write_guardrails(
+            content,
+            type_,
+            relevance,
+            explicitly_requested=explicitly_requested,
+            core_memory=core_memory,
+        )
+        if op == "assert"
+        else _clamp_rel(relevance)
+    )
     key = _dedup_key(type_, content)
     ts = _now_iso(now)
     path = settings.memory_db_file()
@@ -226,18 +375,125 @@ def op_save_memory(
             current = {e["dedup_key"]: e for e in _fold(_all_rows(conn))}
             existing = current.get(key)
             if op == "assert":
-                if (
-                    existing
-                    and existing["relevance"] == rel
-                    and (existing["content"] or "").strip() == content
-                ):
+                if existing:
+                    conn.execute(
+                        "INSERT INTO memory_events "
+                        "(ts, source, op, type, content, relevance, tags, dedup_key) "
+                        "VALUES (?,?,?,?,?,?,?,?)",
+                        (
+                            ts,
+                            source,
+                            "confirm",
+                            existing["type"],
+                            existing["content"],
+                            existing["relevance"],
+                            existing["tags"],
+                            existing["dedup_key"],
+                        ),
+                    )
+                    conn.commit()
                     return {
-                        "status": "noop",
-                        "reason": "identical memory already stored",
+                        "status": "refreshed",
+                        "reason": "exact memory confirmed",
+                        "memory_id": existing["memory_id"],
+                        "type": existing["type"],
+                        "content": existing["content"],
+                        "created_at": existing["created_at"],
+                        "last_confirmed_at": ts,
+                    }
+
+                entries = list(current.values())
+                candidates = _find_candidates(entries, content, type_, tags)
+                by_id = {e["memory_id"]: e for e in entries}
+                if resolution == "conflict":
+                    return {
+                        "status": "conflict",
+                        "reason": "client flagged a conflict; memory was not changed",
+                        "candidates": candidates,
+                    }
+                if candidates and resolution is None:
+                    return {
+                        "status": "possible_duplicate",
+                        "reason": (
+                            "No write occurred. Compare the proposed memory with these candidates, "
+                            "then retry with resolution=create, refresh, supersede, or conflict."
+                        ),
+                        "proposed": {
+                            "type": type_,
+                            "content": content,
+                            "relevance": rel,
+                            "tags": tags,
+                        },
+                        "candidates": candidates,
+                    }
+                if resolution in ("refresh", "supersede"):
+                    target = by_id.get(target_memory_id)
+                    candidate_ids = {c["memory_id"] for c in candidates}
+                    if target is None or target_memory_id not in candidate_ids:
+                        raise ServiceError(
+                            "target_memory_id must identify one of the current candidates for "
+                            f"resolution='{resolution}'. No write occurred.",
+                            status_code=409,
+                        )
+                    if resolution == "refresh":
+                        conn.execute(
+                            "INSERT INTO memory_events "
+                            "(ts, source, op, type, content, relevance, tags, dedup_key) "
+                            "VALUES (?,?,?,?,?,?,?,?)",
+                            (
+                                ts,
+                                source,
+                                "confirm",
+                                target["type"],
+                                target["content"],
+                                target["relevance"],
+                                target["tags"],
+                                target["dedup_key"],
+                            ),
+                        )
+                        conn.commit()
+                        return {
+                            "status": "refreshed",
+                            "reason": "client confirmed the candidate has the same meaning",
+                            "memory_id": target["memory_id"],
+                            "type": target["type"],
+                            "content": target["content"],
+                            "created_at": target["created_at"],
+                            "last_confirmed_at": ts,
+                        }
+
+                    conn.execute(
+                        "INSERT INTO memory_events "
+                        "(ts, source, op, type, content, relevance, tags, dedup_key) "
+                        "VALUES (?,?,?,?,?,?,?,?)",
+                        (
+                            ts,
+                            source,
+                            "retract",
+                            target["type"],
+                            target["content"],
+                            target["relevance"],
+                            target["tags"],
+                            target["dedup_key"],
+                        ),
+                    )
+                    cursor = conn.execute(
+                        "INSERT INTO memory_events "
+                        "(ts, source, op, type, content, relevance, tags, dedup_key) "
+                        "VALUES (?,?,?,?,?,?,?,?)",
+                        (ts, source, "assert", type_, content, rel, tags, key),
+                    )
+                    conn.commit()
+                    return {
+                        "status": "superseded",
+                        "superseded_memory_id": target["memory_id"],
+                        "memory_id": cursor.lastrowid,
                         "type": type_,
                         "content": content,
+                        "relevance": rel,
                     }
-                conn.execute(
+
+                cursor = conn.execute(
                     "INSERT INTO memory_events "
                     "(ts, source, op, type, content, relevance, tags, dedup_key) "
                     "VALUES (?,?,?,?,?,?,?,?)",
@@ -245,13 +501,27 @@ def op_save_memory(
                 )
                 conn.commit()
                 return {
-                    "status": "updated" if existing else "created",
+                    "status": "created",
+                    "memory_id": cursor.lastrowid,
                     "type": type_,
                     "content": content,
                     "relevance": rel,
+                    "kept_both": bool(candidates and resolution == "create"),
                 }
             # retract
-            if not existing:
+            target = (
+                next(
+                    (
+                        e
+                        for e in current.values()
+                        if e["memory_id"] == target_memory_id
+                    ),
+                    None,
+                )
+                if target_memory_id is not None
+                else existing
+            )
+            if not target:
                 return {
                     "status": "noop",
                     "reason": "no matching memory to retract",
@@ -262,10 +532,24 @@ def op_save_memory(
                 "INSERT INTO memory_events "
                 "(ts, source, op, type, content, relevance, tags, dedup_key) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                (ts, source, "retract", type_, content, rel, tags, key),
+                (
+                    ts,
+                    source,
+                    "retract",
+                    target["type"],
+                    target["content"],
+                    target["relevance"],
+                    target["tags"],
+                    target["dedup_key"],
+                ),
             )
             conn.commit()
-            return {"status": "retracted", "type": type_, "content": content}
+            return {
+                "status": "retracted",
+                "memory_id": target["memory_id"],
+                "type": target["type"],
+                "content": target["content"],
+            }
         finally:
             conn.close()
 
@@ -361,10 +645,12 @@ def op_search_memory(
         "total_entries": len(entries),
         "results": [
             {
+                "memory_id": e["memory_id"],
                 "type": e["type"],
                 "content": e["content"],
                 "relevance": e["relevance"],
                 "created_at": e["created_at"],
+                "last_confirmed_at": e["last_confirmed_at"],
                 "match": e["match"],
                 "score": e["score"],
                 "tags": e["tags"],
@@ -393,10 +679,12 @@ def op_list_memory(settings: Settings, now: datetime | None = None) -> dict:
         "db_path": settings.memory_db_file(),
         "entries": [
             {
+                "memory_id": e["memory_id"],
                 "type": e["type"],
                 "content": e["content"],
                 "relevance": e["relevance"],
                 "created_at": e["created_at"],
+                "last_confirmed_at": e["last_confirmed_at"],
                 "score": e["score"],
                 "tags": e["tags"],
                 "source": e["source"],
