@@ -96,6 +96,15 @@ check("gmail_delete_draft cannot touch received mail",
 
 # === input schemas exist + reflect params ===
 check("save_memory schema has content", "content" in (by_name["save_memory"].inputSchema.get("properties") or {}))
+save_props = by_name["save_memory"].inputSchema.get("properties") or {}
+check("save_memory schema exposes two-stage resolution",
+      all(name in save_props for name in ("resolution", "target_memory_id")))
+check("save_memory schema exposes write guard acknowledgements",
+      all(name in save_props for name in ("explicitly_requested", "core_memory")))
+check("save_memory description carries bounded no-write protocol",
+      "possible_duplicate" in by_name["save_memory"].description and
+      "at most 3 candidates" in by_name["save_memory"].description and
+      "NO WRITE" in by_name["save_memory"].description)
 check("github_merge_pr schema has confirm", "confirm" in (by_name["github_merge_pr"].inputSchema.get("properties") or {}))
 check("load_context takes no required args",
       not (by_name["load_context"].inputSchema.get("required") or []))
@@ -106,7 +115,7 @@ check("load_context -> persona Alistair", ctx.get("persona", {}).get("name") == 
 check("load_context -> has skills + memory", "skills" in ctx and "memory" in ctx)
 
 # === call_tool: memory save -> get -> retract -> get (clean), via the MCP ===
-saved = call("save_memory", {"content": "__mcp_smoke__ test fact", "type": "fact", "relevance": 1})
+saved = call("save_memory", {"content": "__mcp_smoke__ test fact", "type": "fact", "relevance": 2})
 check("save_memory -> created", saved.get("status") == "created")
 got = call("get_memory", {})
 check("get_memory sees the smoke fact", "__mcp_smoke__" in got.get("memory_block", ""))
@@ -116,6 +125,24 @@ check("save_memory retract -> retracted", ret.get("status") == "retracted")
 got2 = call("get_memory", {})
 check("get_memory clean after retract", "__mcp_smoke__" not in got2.get("memory_block", ""))
 check("get_memory total back to 0", got2.get("total_entries") == 0)
+
+# === call_tool: bounded two-stage memory protocol, through the MCP ===
+canonical = call("save_memory", {"content": "User is based in London"})
+possible = call("save_memory", {"content": "User lives in London"})
+check("MCP possible_duplicate writes nothing", possible.get("status") == "possible_duplicate" and
+      call("get_memory", {}).get("total_entries") == 1)
+check("MCP shortlist is bounded and exposes stable ids",
+      0 < len(possible.get("candidates", [])) <= 3 and
+      possible["candidates"][0].get("memory_id") == canonical.get("memory_id"))
+same = call("save_memory", {
+    "content": "User lives in London",
+    "resolution": "refresh",
+    "target_memory_id": canonical["memory_id"],
+})
+check("MCP explicit refresh keeps canonical", same.get("status") == "refreshed" and
+      same.get("content") == "User is based in London")
+ret_by_id = call("save_memory", {"op": "retract", "target_memory_id": canonical["memory_id"]})
+check("MCP retract by id needs no old content", ret_by_id.get("status") == "retracted")
 
 # === call_tool: get_skill good + bad ===
 sk = call("get_skill", {"slug": "notion-master"})

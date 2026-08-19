@@ -48,7 +48,8 @@ check("memory block present", "memory_block" in ctx["memory"])
 check("how_to mentions Alistair", "Alistair" in ctx["how_to"])
 
 # === load_context: live memory composed in ===
-m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=5)
+m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=5,
+                 core_memory=True)
 ctx2 = a.load_context(s)
 check("memory block reflects saved fact", "penicillin" in ctx2["memory"]["memory_block"].lower())
 check("memory total_entries == 1", ctx2["memory"]["total_entries"] == 1)

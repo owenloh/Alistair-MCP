@@ -4,8 +4,9 @@ Context: Alistair's memory is an append-only SQLite event log on a Railway volum
 (`docs/MEMORY_FORMULA.md`), shared across every connected client (claude.ai, voice,
 Gemini, ChatGPT). `get_memory` loads a CONSOLIDATED block (core pinned + decayed
 top-N, token-budgeted); `search_memory` recalls ANY entry on demand. Exponential
-decay/importance handles **volume** (ranking + eviction) but NOT **coherence** —
-it never merges near-duplicates or resolves superseded/conflicting facts. The store
+decay/importance handles **volume** (ranking + eviction). Deterministic full-store
+candidate retrieval now bounds each normal write decision to at most three plausible
+matches, but the client LLM still owns semantic resolution. The store
 grows with the number of distinct durable facts; the *loaded cost* stays bounded
 (cap + budget), but near-dups, conflicts, and `relevance=5` core bloat accumulate.
 Consolidation closes that gap. (A one-shot manual consolidation already took the
@@ -16,9 +17,11 @@ Trigger: **at brief time.** When the user asks for a brief, fold a light
 `memory-maintenance` pass into it (daily = obvious-duplicate merges only + surface
 anything ambiguous; weekly = a fuller sweep). On explicit request ("tidy your
 memory") run the full procedure. Mechanism = the existing `memory-maintenance`
-skill + `search_memory`/list + `save_memory` (assert/retract); the intelligence is
-the connected client LLM, the server stays no-LLM. Append-only log stays ground
-truth, so every pass is reversible. Goal of V1: keep the store coherent now AND
+skill + `search_memory`/list + guarded `save_memory`. Normal saves do not pull the
+full store: `save_memory` returns at most three deterministic candidates and the client
+chooses create/keep-both, refresh, supersede, or conflict. Exact repeats append a
+confirmation. The intelligence is the connected client LLM; the server stays no-LLM.
+Append-only history stays ground truth. Goal of V1: keep the store coherent now AND
 **observe the real growth/duplication rate** before committing to V2.
 
 ## V2 — native server-side LLM consolidation + summary-backed get_memory (FUTURE)

@@ -115,8 +115,9 @@ ROUTING = [
      "use": "Any factual recall about {user} -> retrieve from Alistair FIRST (get_memory holds the consolidated "
             "block; search_memory recalls anything older/specific) and answer from THIS store, canonical over "
             "any local/built-in memory (which may be stale). Don't answer self-recall from the client's own "
-            "memory. save_memory writes a durable fact (op='retract' to forget) — facts/preferences/open-loops "
-            "only, never transient data; read/search before writing to dedupe. Tidy periodically per "
+            "memory. save_memory writes a durable fact (op='retract' to forget) — facts/preferences only, "
+            "never transient data. Follow its two-stage possible_duplicate protocol; do not silently append. "
+            "Tidy periodically per "
             "get_skill('memory-maintenance'). Full rules in memory_protocol."},
 ]
 
@@ -184,15 +185,19 @@ MEMORY_PROTOCOL = [
     "like 'tell me about myself' / 'what do you know about me': retrieve from get_memory / search_memory "
     "and answer from THIS store, treated as CANONICAL over any local/built-in memory the client may "
     "hold (which can be stale relative to this one).",
-    "Read or search before you write, so you don't re-save or near-duplicate (e.g. 'lives in London' vs "
-    "'based in London'). The store dedups exact repeats (returns 'noop'); searching first catches the rest.",
+    "On every save, let save_memory run its deterministic full-store candidate check. Exact repeats append "
+    "a confirmation and return refreshed. If it returns possible_duplicate, NO WRITE occurred: compare only "
+    "the at-most-three returned candidates, then call again with resolution=create (genuinely new/keep both), "
+    "refresh (same meaning), supersede (outdated candidate), or conflict (leave unwritten), using the returned "
+    "target_memory_id for refresh/supersede. Do not request the full store just to decide one write.",
     "Save incrementally, the MOMENT a durable fact/preference/open loop surfaces — never batch it to the "
     "end. Each save_memory commits immediately, so an abrupt end only loses the un-saved tail.",
-    "Save FACTS / PREFERENCES / STANDING COMMITMENTS / OPEN LOOPS only. Do NOT save transient or experiment "
-    "data — coffee brew numbers, run logs, one-off readings, today's todo text — that lives in Notion, not "
-    "memory. Pick relevance honestly: 5 is ONLY for permanent identity/safety facts (pinned, never evicted); "
-    "3 is the default; low-relevance entries decay out by design, and search_memory still recalls them, so "
-    "there is no need to over-pin.",
+    "Save durable FACTS / PREFERENCES only by default. Do NOT auto-save actions, summaries, transient logistics, "
+    "coffee/run data, readings, or today's todo text; those live in the in-tray or Notion. Relevance rubric: "
+    "5 only permanent cross-client identity/address-form, safety, tool-ownership, and core-workflow invariants; "
+    "4 durable important but situational; 3 default durable context; 2 narrow/uncertain/deferred; 1 normally "
+    "reject or route elsewhere. The guarded exceptions require explicitly_requested=true; relevance 5 also "
+    "requires core_memory=true.",
     "Reconcile a host client's memory IN (fold durable facts it holds into save_memory with a clear source), "
     "then let the host store thin out — Alistair's store is the keeper.",
     "Keep it tidy. Memory rots if you over-save; consolidate periodically. The memory_maintenance tool "

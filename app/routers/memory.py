@@ -22,15 +22,17 @@ router = APIRouter(
 )
 
 _SAVE_DOC = (
-    "Save one durable fact about {user} to long-term memory. Use this whenever you "
-    "learn something worth remembering across sessions — a standing fact, a "
-    "preference, an open commitment, or a short summary. "
-    "type: 'fact' (identity, people, constraints, allergies), 'preference' (how "
-    "{user} likes things done), 'action' (an open item/commitment), or 'summary' (a "
-    "rolling recap). relevance 1-5: use 5 ONLY for permanent safety/identity facts "
-    "that must never be forgotten (they are pinned and never evicted); 3 is the "
-    "default. Writing is append-only and de-duplicated, so re-saving the same thing "
-    "is safe. To forget something, send op='retract' with the same type+content."
+    "Two-stage write to {user}'s canonical cross-client memory. First call with the durable "
+    "proposed fact. Exact repeats append a confirmation and return refreshed. A plausible "
+    "lexical match returns possible_duplicate with at most three candidates and writes nothing. "
+    "The client model must compare only those candidates, then retry with resolution='create' "
+    "(genuinely new/keep both), 'refresh' (same meaning), 'supersede' (old information), or "
+    "'conflict' (leave unwritten), plus target_memory_id for refresh/supersede. relevance: 5 "
+    "only permanent identity, address-form, safety, tool-ownership, or core-workflow invariants "
+    "and requires core_memory=true; 4 durable important but situational; 3 default durable "
+    "context; 2 narrow/uncertain/deferred; 1 normally belongs elsewhere. action, summary, "
+    "relevance 1, and transient logistics require explicitly_requested=true. Reads never refresh. "
+    "To forget, use op='retract'; target_memory_id is preferred over resending old text."
 )
 _GET_DOC = (
     "Load what you remember about {user} as a compact, ready-to-read block. Call this "
@@ -53,12 +55,16 @@ _SEARCH_DOC = (
 
 
 class SaveMemoryRequest(BaseModel):
-    content: str
+    content: str | None = None
     type: str = "fact"
     relevance: int = 3
     tags: str | None = None
     source: str | None = "voice"
     op: str = "assert"  # 'assert' to remember, 'retract' to forget
+    resolution: str | None = None
+    target_memory_id: int | None = None
+    explicitly_requested: bool = False
+    core_memory: bool = False
 
 
 class GetMemoryRequest(BaseModel):
@@ -82,6 +88,10 @@ def save_memory(body: SaveMemoryRequest) -> dict:
         tags=body.tags,
         source=body.source,
         op=body.op,
+        resolution=body.resolution,
+        target_memory_id=body.target_memory_id,
+        explicitly_requested=body.explicitly_requested,
+        core_memory=body.core_memory,
     )
 
 

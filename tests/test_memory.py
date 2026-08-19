@@ -99,15 +99,14 @@ check("rest content absent after trim", "trivia number" not in blk2)
 # === IO: save/get/list round trip with injected time ===
 s = fresh_settings(memory_top_n=8, memory_max_tokens=1200, memory_core_relevance=5)
 check("created on first save",
-      m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=5, now=T0)["status"] == "created")
-check("noop on identical save",
-      m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=5, now=T1)["status"] == "noop")
-check("updated on relevance change",
-      m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=4, now=T1)["status"] == "updated")
-# restore to core (rel 5) so the recall assertions below treat it as pinned
-m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=5, now=T1)
+      m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=5,
+                       core_memory=True, now=T0)["status"] == "created")
+check("exact reassert refreshes",
+      m.op_save_memory(s, "Ada is allergic to penicillin", type_="fact", relevance=5,
+                       core_memory=True, now=T1)["status"] == "refreshed")
 m.op_save_memory(s, "Prefers concise replies", type_="preference", relevance=3, now=T1)
-m.op_save_memory(s, "Ship the memory layer", type_="action", relevance=3, now=T1)
+m.op_save_memory(s, "Ship the memory layer", type_="action", relevance=3,
+                 explicitly_requested=True, now=T1)
 
 got = m.op_get_memory(s, now=NOW)
 check("get returns block", isinstance(got["memory_block"], str) and got["memory_block"])
@@ -129,6 +128,7 @@ check("list scores present + sorted desc",
 pen = [e for e in lst["entries"] if "penicillin" in (e["content"] or "").lower()][0]
 check("created_at kept earliest across update", pen["created_at"] == T0.isoformat())
 check("relevance reflects latest assert (5)", pen["relevance"] == 5)
+check("last_confirmed_at reflects confirmation", pen["last_confirmed_at"] == T1.isoformat())
 
 # === IO: retract drops it from recall ===
 m.op_save_memory(s, "Ship the memory layer", type_="action", op="retract", now=NOW)
@@ -155,9 +155,11 @@ check("data survives new connection", m.op_get_memory(s2, now=NOW)["total_entrie
 # === IO: search_memory recalls beyond the loaded top-N block ===
 # Fresh store: 1 core fact + many low-relevance facts so get_memory's tail can't hold them all.
 ss = fresh_settings(memory_top_n=2, memory_max_tokens=200, memory_core_relevance=5)
-m.op_save_memory(ss, "Ada's GitHub owner is owenloh", type_="fact", relevance=5, now=T1)
+m.op_save_memory(ss, "Ada's GitHub owner is owenloh", type_="fact", relevance=5,
+                 core_memory=True, now=T1)
 for i in range(12):
-    m.op_save_memory(ss, f"Old project number {i} called Catalon-{i}", type_="fact", relevance=2, now=T0)
+    m.op_save_memory(ss, f"Old project number {i} called Catalon-{i}", type_="fact",
+                     relevance=2, resolution="create" if i else None, now=T0)
 loaded = m.op_get_memory(ss, now=NOW)
 check("loaded block is capped (not all 13)", loaded["selected_count"] < 13)
 # the specific old fact is NOT in the loaded block...
